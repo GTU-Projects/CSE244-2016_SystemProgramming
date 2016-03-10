@@ -1,0 +1,4 @@
+gcc hw1.c -o exec && ./exec wordbox.txt ece
+valgrind --leak-check=full --show-leak-kinds=all ./exec wordbox.txt ece
+
+

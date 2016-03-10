@@ -1,0 +1,39 @@
+
+-> wordbox.txt ## 1 ##
+1. ece 0 0
+2. ece 0 9
+3. ece 1 4
+4. ece 1 6
+5. ece 2 4
+6. ece 3 1
+
+-> wordbox.txt ## 2 ##
+1. ece 0 0
+2. ece 0 9
+3. ece 1 4
+4. ece 1 6
+5. ece 2 4
+6. ece 3 1
+
+-> word2box.txt ## 1 ##
+1. hasan 0 0
+2. hasan 1 0
+3. hasan 1 5
+4. hasan 1 10
+
+-> word2box.txt ## 2 ##
+1. hasan 0 0
+2. hasan 1 0
+3. hasan 1 5
+4. hasan 1 10
+
+-> wordbox.txt ## 3 ##
+1. ec 0 0
+2. ec 0 2
+3. ec 0 9
+4. ec 1 4
+5. ec 1 6
+6. ec 1 8
+7. ec 2 4
+8. ec 2 6
+9. ec 3 1
