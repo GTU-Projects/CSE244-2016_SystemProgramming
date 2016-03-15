@@ -1,0 +1,14 @@
+CC=gcc
+CFLAGS=-c -Wall -ansi -pedantic-errors
+
+all: GrepFromDirectory
+
+GrepFromDirectory: 131044009.o
+	$(CC) 131044009.o  -o exec
+
+main.o: 131044009.c
+	$(CC) $(CFLAGS) 131044009.c
+
+
+clean:
+	rm *o MoreOrLess
