@@ -18,12 +18,14 @@ typedef enum{
 
 int searchDir(const char *dirPath,const char *word);
 bool isDirectory(const char *path);
+int addLog(const char* path,const char* fileName);
+bool isCharacterSpecialFile(const char *path);
 
 int findOccurencesInFile(const char* fileName,const char *word);
 char *getStringOfNumber(long number);
 #define FAIL -1
 #define SUCCESS 0
-
+#define CHILD_PROCESS 0
 #define READ_FLAGS (O_RDONLY)
 #define WRITE_FLAGS (O_WRONLY | O_APPEND | O_CREAT)
 #define FD_MODE (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)

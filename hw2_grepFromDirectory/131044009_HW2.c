@@ -25,7 +25,7 @@ int findOccurencesInFile(const char* fileName,const char *word){
   pid_t PID;
   char *pTempFileName;
   int fdTempFile;
-  int fileToReadfd;
+  int fdFileToRead;
   char buf;
   int foundNum=0;
   int index=0;
@@ -36,13 +36,13 @@ int findOccurencesInFile(const char* fileName,const char *word){
   int row=1;
   char *tempCoordinatText = malloc(sizeof(char)*17+sizeof(int)*3);
 
-  if((fileToReadfd = open(fileName,READ_FLAGS)) == FAIL){
+  if((fdFileToRead = open(fileName,READ_FLAGS)) == FAIL){
     fprintf(stderr," Failed open \"%s\" : %s ",fileName,strerror(errno));
     return FAIL;
   }
 
   PID = getpid();
-  pTempFileName = getStringOfNumber((long)1);
+  pTempFileName = getStringOfNumber((long)PID);
   #ifdef DEBUG
   printf("PID : %ld -- ",(long)PID);
   printf("FileName(char *) :%s\n",pTempFileName);
@@ -52,7 +52,7 @@ int findOccurencesInFile(const char* fileName,const char *word){
   write(fdTempFile,fileName,strlen(fileName));
   write(fdTempFile,"\n",1);
 
-while(read(fileToReadfd,&buf,sizeof(char))){
+while(read(fdFileToRead,&buf,sizeof(char))){
     ++index;
     if(buf == '\n'){
       ++row;
@@ -62,7 +62,7 @@ while(read(fileToReadfd,&buf,sizeof(char))){
       column=index;
       ++equalCh;
       for(i=1;i<strlen(word);++i){
-        read(fileToReadfd,&buf,sizeof(char));
+        read(fdFileToRead,&buf,sizeof(char));
         ++index;
         if(buf == word[i]){
           ++equalCh;
@@ -81,7 +81,7 @@ while(read(fileToReadfd,&buf,sizeof(char))){
         printf("Index of end of equality : %d\n",index-1);
         #endif
         ++foundNum;
-        lseek(fileToReadfd,-equalCh+1,SEEK_CUR);
+        lseek(fdFileToRead,-equalCh+1,SEEK_CUR);
         index = index -equalCh+1;
         #ifdef DEBUG
         printf("Index after lseek : %d\n",index);
@@ -94,7 +94,7 @@ while(read(fileToReadfd,&buf,sizeof(char))){
   }
 
   free(tempCoordinatText);
-  close(fileToReadfd);
+  close(fdFileToRead);
   close(fdTempFile);
   return foundNum;
 }
@@ -126,14 +126,47 @@ bool isCharacterSpecialFile(const char *path){
   return TRUE;
 }
 
+int addLog(const char *dirPath,const char* fileName){
+
+  int fdLog;
+  int fdChildLog;
+  char ch;
+
+
+  fdChildLog = open(fileName,READ_FLAGS);
+  if(FAIL == fdChildLog){
+    fprintf(stderr, "Failed to create childLog -> errno : %s\n",strerror(errno));
+    exit(1);
+  }
+
+  chdir("..");
+  fdLog = open(getStringOfNumber(getpid()),WRITE_FLAGS,FD_MODE);
+  if(FAIL == fdLog){
+    fprintf(stderr, "Fail -> errno : %s\n",strerror(errno));
+    exit(1);
+  }
+
+  while(read(fdChildLog,&ch,1)){
+    write(fdLog,&ch,1);
+  }
+
+  chdir(dirPath);
+  close(fdChildLog);
+  close(fdLog);
+
+
+}
+
 
 int searchDir(const char *dirPath, const char *word){
 
   DIR* pDir;
+  pid_t terminated;
   pid_t pidChild;
   struct dirent * pDirent;
   struct stat statbuf;
   char mycwd[PATH_MAX];
+  int status;
 
   if(NULL == (pDir = opendir(dirPath))){
     fprintf(stderr, "Fail -> Errno : %s",strerror(errno));
@@ -146,30 +179,36 @@ int searchDir(const char *dirPath, const char *word){
 
   while(NULL != (pDirent = readdir(pDir))){
    if(strcmp( pDirent->d_name,".")!=0 && strcmp(pDirent->d_name,"..")!=0){
+     //fprintf(stderr,"pid : %d - TXT File : %s\n",getpid(),pDirent->d_name);
      pidChild = fork();
-     if(pidChild == 0){
+     if(pidChild == CHILD_PROCESS){
        break;
      }
    }
  }
  if(pidChild >0){
-  while(wait(NULL) != FAIL);
-}else{
-  #ifdef DEBUG
-    printf("File Path : %s\n",mycwd);
-  #endif
-
-  if(TRUE == isDirectory(pDirent->d_name)){
-    searchDir(pDirent->d_name,word);
-  }else if(TRUE == isCharacterSpecialFile(pDirent->d_name)){
+  while(FAIL != (terminated = wait(NULL))){
+    addLog(dirPath,getStringOfNumber(terminated));
+    unlink(getStringOfNumber(terminated));
+    }
+  }else{
     #ifdef DEBUG
-      printf("TXT File : %s\n",pDirent->d_name);
+      printf("File Path : %s\n",mycwd);
     #endif
-      findOccurencesInFile(pDirent->d_name,word);
+    if(TRUE == isDirectory(pDirent->d_name)){
+      searchDir(pDirent->d_name,word);
+    }else if(TRUE == isCharacterSpecialFile(pDirent->d_name)){
+      #ifdef DEBUG
+        printf("TXT File : %s\n",pDirent->d_name);
+      #endif
+        findOccurencesInFile(pDirent->d_name,word);
+    }
+
+    pDir = NULL;
+    pDirent=NULL;
+    //printf(" %ld - %s\n",(long)getpid(),pDirent->d_name);
+    exit(0);
   }
-  //printf(" %ld - %s\n",(long)getpid(),pDirent->d_name);
-  exit(1);
-}
 
   return 0;
 }
