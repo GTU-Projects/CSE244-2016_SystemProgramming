@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-c -Wall
+CFLAGS=-c ##-Wall
 
 all: GrepFromDirectory clean
 
@@ -13,4 +13,5 @@ main.o: main.c
 	$(CC) $(CFLAGS) 131044009_HW2.c
 
 clean:
-	rm *.o
+	rm -rf *.o
+	rm -rf *~
