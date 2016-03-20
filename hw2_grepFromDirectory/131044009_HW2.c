@@ -7,6 +7,7 @@
 #include <sys/stat.h>
 #include <dirent.h> // DIR *
 #include <sys/stat.h>
+#include <sys/wait.h> //wait
 #include <errno.h>
 #include "131044009_HW2.h"
 
@@ -23,7 +24,7 @@ char *getStringOfNumber(long number){
 int findOccurencesInFile(const char* fileName,const char *word){
 
   pid_t PID;
-  char *pTempFileName;
+  char *chrPtrTempFileName;
   int fdTempFile;
   int fdFileToRead;
   char buf;
@@ -31,10 +32,10 @@ int findOccurencesInFile(const char* fileName,const char *word){
   int index=0;
   int equalCh=0;
   int i=0;
-  char *stringOfNumbers;
   int column=0;
   int row=1;
   char *tempCoordinatText = malloc(sizeof(char)*17+sizeof(int)*3);
+  char cwd[PATH_MAX];
 
   if((fdFileToRead = open(fileName,READ_FLAGS)) == FAIL){
     fprintf(stderr," Failed open \"%s\" : %s ",fileName,strerror(errno));
@@ -42,13 +43,20 @@ int findOccurencesInFile(const char* fileName,const char *word){
   }
 
   PID = getpid();
-  pTempFileName = getStringOfNumber((long)PID);
+  chrPtrTempFileName = getStringOfNumber((long)PID);
   #ifdef DEBUG
   printf("PID : %ld -- ",(long)PID);
-  printf("FileName(char *) :%s\n",pTempFileName);
+  printf("FileName(char *) :%s\n",chrPtrTempFileName);
   #endif
 
-  fdTempFile = open(pTempFileName,WRITE_FLAGS,FD_MODE);
+  if(FAIL == (fdTempFile = open(chrPtrTempFileName,WRITE_FLAGS,FD_MODE))){
+    fprintf(stderr," Failed create \"%s\" : %s ",chrPtrTempFileName,strerror(errno));
+    return FAIL;
+  }
+
+  getcwd(cwd,PATH_MAX);
+  write(fdTempFile,cwd,strlen(cwd));
+  write(fdTempFile,"/",1);
   write(fdTempFile,fileName,strlen(fileName));
   write(fdTempFile,"\n",1);
 
@@ -94,6 +102,7 @@ while(read(fdFileToRead,&buf,sizeof(char))){
   }
 
   free(tempCoordinatText);
+  free(chrPtrTempFileName);
   close(fdFileToRead);
   close(fdTempFile);
   return foundNum;
@@ -110,15 +119,13 @@ bool isDirectory(const char *path){
 }
 
 bool isCharacterSpecialFile(const char *path){
-
   int i=0;
   int sizeOfFile=0;
   int sizeOfExtension=0;
-  char extension[4] =".txt";
+  char extension[] =".txt";
   sizeOfFile=strlen(path);
   sizeOfExtension=strlen(extension);
-
-  for(i=0;i<4;++i){
+  for(i=0;i<strlen(extension);++i){
     if(path[sizeOfFile -sizeOfExtension+i] != extension[i]){
       return FALSE;
     }
@@ -126,24 +133,23 @@ bool isCharacterSpecialFile(const char *path){
   return TRUE;
 }
 
-int addLog(const char *dirPath,const char* fileName){
+int addLog(const char *dirPath,const char* fileName,const char* logName){
 
   int fdLog;
   int fdChildLog;
   char ch;
 
-
   fdChildLog = open(fileName,READ_FLAGS);
   if(FAIL == fdChildLog){
     fprintf(stderr, "Failed to create childLog -> errno : %s\n",strerror(errno));
-    exit(1);
+    return FAIL;
   }
 
   chdir("..");
-  fdLog = open(getStringOfNumber(getpid()),WRITE_FLAGS,FD_MODE);
+  fdLog = open(logName,WRITE_FLAGS,FD_MODE);
   if(FAIL == fdLog){
     fprintf(stderr, "Fail -> errno : %s\n",strerror(errno));
-    exit(1);
+    return FAIL;
   }
 
   while(read(fdChildLog,&ch,1)){
@@ -154,7 +160,7 @@ int addLog(const char *dirPath,const char* fileName){
   close(fdChildLog);
   close(fdLog);
 
-
+  return 0;
 }
 
 
@@ -164,9 +170,9 @@ int searchDir(const char *dirPath, const char *word){
   pid_t terminated;
   pid_t pidChild;
   struct dirent * pDirent;
-  struct stat statbuf;
   char mycwd[PATH_MAX];
-  int status;
+  char *pCh_logFileName;
+  char *pCh_TerminatedProcess;
 
   if(NULL == (pDir = opendir(dirPath))){
     fprintf(stderr, "Fail -> Errno : %s",strerror(errno));
@@ -179,36 +185,41 @@ int searchDir(const char *dirPath, const char *word){
 
   while(NULL != (pDirent = readdir(pDir))){
    if(strcmp( pDirent->d_name,".")!=0 && strcmp(pDirent->d_name,"..")!=0){
-     //fprintf(stderr,"pid : %d - TXT File : %s\n",getpid(),pDirent->d_name);
-     pidChild = fork();
-     if(pidChild == CHILD_PROCESS){
-       break;
-     }
+     if(TRUE == isCharacterSpecialFile(pDirent->d_name) ||
+          TRUE == isDirectory(pDirent->d_name)){
+       pidChild = fork();
+       if(pidChild == CHILD_PROCESS){
+         break;
+       }
+       //fprintf(stderr,"childpid : %d , pid : %d - TXT File : %s\n",pidChild,getpid(),pDirent->d_name);
+    }
    }
  }
+
  if(pidChild >0){
   while(FAIL != (terminated = wait(NULL))){
-    addLog(dirPath,getStringOfNumber(terminated));
-    unlink(getStringOfNumber(terminated));
+    pCh_logFileName=getStringOfNumber(getpid());
+    pCh_TerminatedProcess = getStringOfNumber(terminated);
+    addLog(dirPath,pCh_TerminatedProcess,pCh_logFileName);
+    unlink(pCh_TerminatedProcess);
+    free(pCh_logFileName);
+    free(pCh_TerminatedProcess);
     }
-  }else{
+  }else if(pidChild == CHILD_PROCESS){
     #ifdef DEBUG
       printf("File Path : %s\n",mycwd);
     #endif
     if(TRUE == isDirectory(pDirent->d_name)){
       searchDir(pDirent->d_name,word);
-    }else if(TRUE == isCharacterSpecialFile(pDirent->d_name)){
+    }else {
       #ifdef DEBUG
         printf("TXT File : %s\n",pDirent->d_name);
       #endif
         findOccurencesInFile(pDirent->d_name,word);
     }
-
     pDir = NULL;
     pDirent=NULL;
-    //printf(" %ld - %s\n",(long)getpid(),pDirent->d_name);
     exit(0);
   }
-
   return 0;
 }

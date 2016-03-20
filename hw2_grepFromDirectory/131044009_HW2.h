@@ -14,11 +14,13 @@ typedef enum{
 #define PATH_MAX 255
 #endif
 
+#define DEF_LOG_FILE_NAME "gfd.log"
+
 
 
 int searchDir(const char *dirPath,const char *word);
 bool isDirectory(const char *path);
-int addLog(const char* path,const char* fileName);
+int addLog(const char* path,const char* fileName,const char* logName);
 bool isCharacterSpecialFile(const char *path);
 
 int findOccurencesInFile(const char* fileName,const char *word);

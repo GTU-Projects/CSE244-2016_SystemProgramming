@@ -15,13 +15,20 @@
 
 int main(int argc,char *argv[]){
 
+  char *pCh_logFileName;
 
   if(argc != 3){
     fprintf(stderr,"Usage : %s DirectoryName \"string\" ",argv[0]);
     return 1;
   }
 
-  printf("Total Found : %d\n",searchDir(argv[1],argv[2]));
+    printf("Total Found : %d\n",searchDir(argv[1],argv[2]));
+    pCh_logFileName=getStringOfNumber(getpid());
+    chdir("..");
+    rename(pCh_logFileName,DEF_LOG_FILE_NAME);
+
+    free(pCh_logFileName);
+    pCh_logFileName=NULL;
 
   return 0;
 }
