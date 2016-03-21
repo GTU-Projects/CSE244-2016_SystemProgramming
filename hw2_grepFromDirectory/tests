@@ -1,9 +1,0 @@
-stringOfNumbers = getStringOfNumber(foundNum);
-write(fdTempFile,stringOfNumbers,strlen(stringOfNumbers));
-write(fdTempFile,". ",2);
-stringOfNumbers = getStringOfNumber(index);
-write(fdTempFile,stringOfNumbers,strlen(stringOfNumbers));
-stringOfNumbers = getStringOfNumber(index);
-write(fdTempFile,stringOfNumbers,strlen(stringOfNumbers));
-
-write(fdTempFile,getStringOfNumber(index),1);

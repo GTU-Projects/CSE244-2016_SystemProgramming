@@ -1,16 +1,13 @@
 CC=gcc
-CFLAGS=-c -Wall
+CFLAGS=-c -Wall -ansi -pedantic-errors
 
 all: GrepFromDirectory clean
 
-GrepFromDirectory: 131044009_HW2.o main.o
-	$(CC) 131044009_HW2.o main.o -o exec
+GrepFromDirectory: HW2_131044009_HASAN_MEN.o
+	$(CC) HW2_131044009_HASAN_MEN.o -o exec
 
-main.o: main.c
-	$(CC) $(CFLAGS) main.c
-
-131044009.o : 131044009_HW2.c
-	$(CC) $(CFLAGS) 131044009_HW2.c
+main.o: HW2_131044009_HASAN_MEN.c
+	$(CC) $(CFLAGS) HW2_131044009_HASAN_MEN.c
 
 clean:
 	rm -rf *.o
