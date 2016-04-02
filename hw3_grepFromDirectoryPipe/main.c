@@ -1,5 +1,5 @@
 /*######################################################################*/
-/*       GTU244 System Programming HW2 - Grep From Directory            */
+/*       GTU244 System Programming HW3 - Grep From Directory            */
 /*                     HASAN MEN - 131044009                            */
 /*                                                                      */
 /*USAGE  : ./exec "diretory name" "word"                                */
@@ -15,7 +15,8 @@
 int main(int argc,char *argv[]){
 
   char logName[FILE_NAME_MAX];
-  int totalFound=0;
+  int totalFound=0;int fdFR;char test[FILE_NAME_MAX];
+    char fifoName[FILE_NAME_MAX];
 
   if(argc != 3){
     fprintf(stderr,"Usage : %s DirectoryName \"string\" ",argv[0]);
@@ -23,7 +24,12 @@ int main(int argc,char *argv[]){
   }
 
   totalFound = searchDir(argv[1],argv[2]);
-  printf("Total : %d",totalFound);
+  exit(1);
+
+  sprintf(fifoName,".%ld.log",(long)getpid());
+  fdFR= open(fifoName,READ_FLAGS);
+    while(read(fdFR,test,FILE_NAME_MAX)!=0);
+  printf("Total : %d\n",totalFound);
 
   sprintf(logName,"%ld",(long)getpid());
 

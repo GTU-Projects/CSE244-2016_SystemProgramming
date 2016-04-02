@@ -10,10 +10,10 @@
 #include <wait.h>
 #include "HW3_131044009.h"
 
-int findOccurencesInFile(const char* fileName,const char *word){
-  char logFileName[FILE_NAME_MAX];
+#define DEBUG
+
+int findOccurencesInFile(int fd,const char* fileName,const char *word){
   char wordCoordinats[COORDINAT_TEXT_MAX];/* dosyaya koordinatlari basmak icin string yuvasi */
-  int fdLogFile; /* log dosyasi icin fildes*/
   int fdFileToRead; /* okunacak dosya fildesi */
   char buf;
   int i=0;
@@ -44,20 +44,16 @@ arkaya bulununca imleci geriye cek ve devam et. Tum eslesen kelimeleri bul
         ++found;
          /*  EGER KELIME VARSA LOG FILE AC VE YAZ YOKSA ELLEME */
         if(logCreated == FALSE){
-          sprintf(logFileName,"%ld",(long)getpid());
-          if(FAIL == (fdLogFile = open(logFileName,WRITE_FLAGS,FD_MODE))){
-            fprintf(stderr," Failed create \"%s\" : %s ",logFileName,strerror(errno));
-            return FAIL;
-          }
           /* log dosyasinin basina bilgilendirme olarak path basildi */
-          write(fdLogFile,fileName,strlen(fileName));
-          write(fdLogFile,"\n",1);
+          write(fd,fileName,strlen(fileName));
+          write(fd,"\n",1);
           logCreated =TRUE;
         }
         lseek(fdFileToRead,-i+1,SEEK_CUR);
         column =column - i+1;
-        sprintf(wordCoordinats,"\t%d. Row: %d Column: %d\n",found,row,column);
-        write(fdLogFile,wordCoordinats,strlen(wordCoordinats));
+        printf("%d. %d %d\n",found,row,column);
+        sprintf(wordCoordinats,"%d%c%d%c%d%c",found,'.',row,' ',column,'\n');
+        write(fd,wordCoordinats,strlen(wordCoordinats)+1);
         i=0;
       }
     }else{
@@ -66,8 +62,6 @@ arkaya bulununca imleci geriye cek ve devam et. Tum eslesen kelimeleri bul
   }
   /* dosyalarin kapatilmasi*/
   close(fdFileToRead);
-  if(TRUE == logCreated)
-    close(fdLogFile);
   return found;
 }
 
@@ -77,12 +71,15 @@ int searchDir(const char *dirPath, const char *word){
   struct dirent *pDirent=NULL;
   pid_t pidChild;
   pid_t pidReturned;
-  char logFileName[FILE_NAME_MAX];
-  int childReadNumber=0;
-  /*char cwd[PATH_MAX];*/
   int totalWord=0;
-  int fd[2]; /* pipe fd */
+  int **fd;
+  int **fifoD;
+  int fileNumber=0;
+  int fdStatus;
+  int drStatus;
+  int directoryNumber=0;
   char path[PATH_MAX];
+  int i=0;
 
 
   if(NULL == (pDir = opendir(dirPath))){
@@ -91,22 +88,63 @@ int searchDir(const char *dirPath, const char *word){
     return FAIL;
   }
 
-  if(FAIL == pipe(fd)){
-    fprintf(stderr, "Failed to open pipe. Errno : %s\n",strerror(errno));
-    return FAIL;
+
+  while(NULL != (pDirent = readdir(pDir))){
+    sprintf(path,"%s/%s",dirPath,pDirent->d_name);
+    if(strcmp(pDirent->d_name,".")!=0 && strcmp(pDirent->d_name,"..")!=0){
+      if(TRUE == isDirectory(path)){
+          ++directoryNumber;
+      }
+      if(TRUE == isRegularFile(path)){
+        ++fileNumber;
+      }
+    }
   }
 
+  #ifdef DEBUG
+    printf("%s - ",dirPath);
+    printf("File number : %d  - Directory Number : %d\n",fileNumber,directoryNumber);
+  #endif
+  rewinddir(pDir);
+
+
+  if(fileNumber != 0){
+    fd = (int **)malloc(fileNumber*sizeof(int *));
+    for(i=0;i<fileNumber;++i){
+      fd[i]=(int *)malloc(2*sizeof(int));
+      if(FAIL == pipe(fd[i])){
+        fprintf(stderr, "%d Failed to open pipe. Errno : %s\n",i,strerror(errno));
+        return FAIL;
+      }
+    }
+}
+
+  if(directoryNumber != 0){
+    fifoD = (int **)malloc(directoryNumber*sizeof(int *));
+    if(fifoD == NULL)
+      printf("control");
+    for(i=0;i<directoryNumber;++i){
+      fifoD[i]=(int *)malloc(2*sizeof(int));
+    }
+}
+
+fdStatus=-1;
+drStatus=-1;
   while(NULL != (pDirent = readdir(pDir))){
       sprintf(path,"%s/%s",dirPath,pDirent->d_name);
       #ifdef DEBUG
         printf("Item path : %s\n",path);
       #endif
       if(strcmp(pDirent->d_name,".")!=0 && strcmp(pDirent->d_name,"..")!=0){
-        if(TRUE == isDirectory(path) || TRUE == isRegularFile(path)){
+        if(TRUE == isDirectory(path)){
+          /*TODO :DIRECTORY SEARCH*/
+        }else if(TRUE == isRegularFile(path)){
+          ++fdStatus;
           if((pidChild = fork()) == FAIL){
             fprintf(stderr,"Failed to create fork. Errno : %s\n",strerror(errno));
             exit(FAIL);
           }
+
           if(pidChild == 0){
             closedir(pDir);
             break;
@@ -115,47 +153,51 @@ int searchDir(const char *dirPath, const char *word){
       }
   }
 
-  sprintf(logFileName,"%ld",(long)getpid());
-
   /* eger cocuk ise*/
   if(pidChild == 0){
-      int fd2;
     if(TRUE == isRegularFile(path)){
-      totalWord += findOccurencesInFile(path,word);
-      fd2 =open(logFileName,READ_FLAGS);
-      close(fd[0]); /* READ KAPISI KAPALI */
-      copyfile(fd2,fd[1]);
-      close(fd[1]);
-      close(fd2);
+      close(fd[fdStatus][0]); /* READ KAPISI KAPALI */
+      totalWord += findOccurencesInFile(fd[fdStatus][1],path,word);
+      close(fd[fdStatus][1]);
     }else if(TRUE == isDirectory(path)){
-      int fd2;
-      totalWord += searchDir(path,word);
-      fd2 =open(logFileName,READ_FLAGS);
-      close(fd[0]); /* READ KAPISI KAPALI */
-      copyfile(fd2,fd[1]);
-      close(fd[1]);
-      close(fd2);
+      /* TODO : CONTROL DIRECTORY */
     }
-
-    unlink(logFileName);
     pDir = NULL;
     pDirent = NULL;
-    exit(totalWord);
+    freePtr(fd,fileNumber);
+    freePtr(fifoD,directoryNumber);
+    fd = NULL;
+    fifoD = NULL;
+    exit(fdStatus);
   }else{
-    while(FAIL != (pidReturned = wait(&childReadNumber))){
-      int fd2;
-      totalWord = WEXITSTATUS(childReadNumber);
-      fd2 = open(logFileName,WRITE_FLAGS,FD_MODE);
-      close(fd[1]); /* wrıte KAPISI KAPALI */
-      copyfile(fd[0],fd2);
-      close(fd2); /* LOG DOSYASINI KAPA */
+    int status;
+    int logfd = open("log.log",(O_WRONLY),FIFO_PERMS);
+    while(FAIL != (pidReturned = wait(&status))){
+      fileNumber = WEXITSTATUS(status);
+      close(fd[fileNumber][1]);/* wrıte KAPISI KAPALI */
+      copyfile(fd[fileNumber][0],logfd);
+      close(fd[fileNumber][0]);
     }
-    close(fd[0]);
+    close(logfd);
   }
   closedir(pDir);
   pDir=NULL;
   pDirent=NULL;
+  freePtr(fd,fileNumber);
+  freePtr(fifoD,directoryNumber);
+  fd = NULL;
+  fifoD = NULL;
   return totalWord;
+}
+
+void freePtr(int **ptr,int size){
+  int i=0;
+  printf("Size : %d",size);
+  if(size != 0){
+    for(i=0;i<size;++i)
+      free(ptr[i]);
+    free(ptr);
+  }
 }
 
 

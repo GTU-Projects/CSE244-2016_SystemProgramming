@@ -2,6 +2,16 @@
 #define HW3_131044009
 
 #include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h> /* pid_t */
+#include <fcntl.h> /* open close */
+#include <string.h> /* strerror */
+#include <errno.h> /* errno */
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <dirent.h> /* DIR *, struct dirent * */
+#include <wait.h>
 
 #define FIFO_PERMS (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 #define READ_FLAGS (O_RDONLY)
@@ -73,7 +83,7 @@ bool isRegularFile(const char *fileName);
 * @para word : aranacak kelime
 * @return dosyadaki toplam eslesen kelime sayisi
 */
-int findOccurencesInFile(const char* fileName,const char *word);
+int findOccurencesInFile(int fd,const char* fileName,const char *word);
 
 
 /*
@@ -83,6 +93,8 @@ int findOccurencesInFile(const char* fileName,const char *word);
 * @param number : pid numarasi
 */
 char *getStringOfNumber(long number);
+
+void freePtr(int **ptr,int size);
 
 ssize_t r_read(int fd, void *buf, size_t size);
 ssize_t r_write(int fd, void *buf, size_t size);
