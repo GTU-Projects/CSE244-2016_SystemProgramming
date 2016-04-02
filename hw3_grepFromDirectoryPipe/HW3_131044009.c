@@ -67,13 +67,14 @@ arkaya bulununca imleci geriye cek ve devam et. Tum eslesen kelimeleri bul
 
 
 int searchDir(const char *dirPath, const char *word){
+
   DIR *pDir = NULL;
   struct dirent *pDirent=NULL;
   pid_t pidChild;
   pid_t pidReturned;
   int totalWord=0;
-  int **fd;
-  int **fifoD;
+  int **fd=NULL;
+  int **fifoD=NULL;
   int fileNumber=0;
   int fdStatus;
   int drStatus;
@@ -81,13 +82,11 @@ int searchDir(const char *dirPath, const char *word){
   char path[PATH_MAX];
   int i=0;
 
-
   if(NULL == (pDir = opendir(dirPath))){
     fprintf(stderr,"Failed to open dir : \"%s\". Errno : %s\n",
                                                   dirPath,strerror(errno));
     return FAIL;
   }
-
 
   while(NULL != (pDirent = readdir(pDir))){
     sprintf(path,"%s/%s",dirPath,pDirent->d_name);
@@ -128,6 +127,7 @@ int searchDir(const char *dirPath, const char *word){
     }
 }
 
+
 fdStatus=-1;
 drStatus=-1;
   while(NULL != (pDirent = readdir(pDir))){
@@ -144,14 +144,16 @@ drStatus=-1;
             fprintf(stderr,"Failed to create fork. Errno : %s\n",strerror(errno));
             exit(FAIL);
           }
-
           if(pidChild == 0){
-            closedir(pDir);
+            /*closedir(pDir);*/
             break;
           }
         }
       }
   }
+
+
+
 
   /* eger cocuk ise*/
   if(pidChild == 0){
@@ -162,24 +164,32 @@ drStatus=-1;
     }else if(TRUE == isDirectory(path)){
       /* TODO : CONTROL DIRECTORY */
     }
-    pDir = NULL;
-    pDirent = NULL;
+
+    closedir(pDir);
     freePtr(fd,fileNumber);
     freePtr(fifoD,directoryNumber);
+    pDir = NULL;
+    pDirent = NULL;
     fd = NULL;
     fifoD = NULL;
     exit(fdStatus);
   }else{
+
+    int childFd;
     int status;
     int logfd = open("log.log",(O_WRONLY),FIFO_PERMS);
+
     while(FAIL != (pidReturned = wait(&status))){
-      fileNumber = WEXITSTATUS(status);
-      close(fd[fileNumber][1]);/* wrıte KAPISI KAPALI */
-      copyfile(fd[fileNumber][0],logfd);
-      close(fd[fileNumber][0]);
+      childFd = WEXITSTATUS(status);
+
+      close(fd[childFd][0]);/* wrıte KAPISI KAPALI */
+      close(fd[childFd][1]);
+      copyfile(fd[childFd][0],logfd);
+      close(fd[childFd][0]);
     }
     close(logfd);
   }
+
   closedir(pDir);
   pDir=NULL;
   pDirent=NULL;

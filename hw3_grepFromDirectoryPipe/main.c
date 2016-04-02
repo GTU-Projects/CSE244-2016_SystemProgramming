@@ -15,7 +15,9 @@
 int main(int argc,char *argv[]){
 
   char logName[FILE_NAME_MAX];
-  int totalFound=0;int fdFR;char test[FILE_NAME_MAX];
+  int totalFound=0;
+  int fdFR;
+  char test[FILE_NAME_MAX];
     char fifoName[FILE_NAME_MAX];
 
   if(argc != 3){
@@ -25,7 +27,6 @@ int main(int argc,char *argv[]){
 
   totalFound = searchDir(argv[1],argv[2]);
   exit(1);
-
   sprintf(fifoName,".%ld.log",(long)getpid());
   fdFR= open(fifoName,READ_FLAGS);
     while(read(fdFR,test,FILE_NAME_MAX)!=0);
