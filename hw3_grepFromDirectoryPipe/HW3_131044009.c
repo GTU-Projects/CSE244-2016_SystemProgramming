@@ -10,7 +10,7 @@
 #include <wait.h>
 #include "HW3_131044009.h"
 
-#define DEBUG
+
 
 int findOccurencesInFile(int fd,const char* fileName,const char *word){
   char wordCoordinats[COORDINAT_TEXT_MAX];/* dosyaya koordinatlari basmak icin string yuvasi */
@@ -27,8 +27,9 @@ int findOccurencesInFile(int fd,const char* fileName,const char *word){
     return FAIL;
   }
 
-  printf("[%ld] :%s\n",(long)getpid(),fileName);
-
+  #ifdef DEBUG
+  printf("[%ld] searches in :%s\n",(long)getpid(),fileName);
+  #endif
 /* Karakter karakter ilerleyerek kelimeyi bul. Kelimenin tum karekterleri arka
 arkaya bulununca imleci geriye cek ve devam et. Tum eslesen kelimeleri bul
 */
@@ -51,7 +52,9 @@ arkaya bulununca imleci geriye cek ve devam et. Tum eslesen kelimeleri bul
         }
         lseek(fdFileToRead,-i+1,SEEK_CUR);
         column =column - i+1;
+        #ifdef DEBUG
         printf("%d. %d %d\n",found,row,column);
+        #endif
         sprintf(wordCoordinats,"%d%c%d%c%d%c",found,'.',row,' ',column,'\n');
         write(fd,wordCoordinats,strlen(wordCoordinats)+1);
         i=0;
@@ -66,147 +69,220 @@ arkaya bulununca imleci geriye cek ve devam et. Tum eslesen kelimeleri bul
 }
 
 
-int searchDir(const char *dirPath, const char *word){
+void findContentNumbers(DIR* pDir,const char *dirPath,int *fileNumber,int *dirNumber){
+  struct dirent * pDirent=NULL;
+  char path[PATH_MAX];
 
+  *fileNumber=0;
+  *dirNumber=0;
+
+  while(NULL != (pDirent = readdir(pDir))){
+    sprintf(path,"%s/%s",dirPath,pDirent->d_name);
+    if(strcmp(pDirent->d_name,".")!=0 && strcmp(pDirent->d_name,"..")!=0){
+      #ifdef DEBUG
+        printf("-->%d. Elem in %s is %s\n",((*dirNumber)+(*fileNumber)),dirPath,path);
+      #endif
+      if(TRUE == isDirectory(path)){
+          ++(*dirNumber);
+      }
+      if(TRUE == isRegularFile(path)){
+        ++(*fileNumber);
+      }
+    }
+  }
+    #ifdef DEBUG
+      printf("+->Founded %d file and %d in %s.\n",*fileNumber,*dirNumber,dirPath);
+    #endif
+    rewinddir(pDir);
+}
+
+/* her process icin dizi olustur*/
+proc_t *createProcessArrays(int size){
+  proc_t * arr;
+  if(size <=0)
+    return NULL;
+  arr=(proc_t *)malloc(sizeof(proc_t)*size);
+  return arr;
+}
+
+/* icindeki pipeleri ac*/
+bool openPipeConnection(proc_t *proc,int size,int fdStatus){
+
+  if(NULL == proc || size<=0 || fdStatus<0 || fdStatus >=size )
+    return FALSE;
+
+    if(FAIL == pipe(proc[fdStatus].fd)){
+      fprintf(stderr, "Failed to open pipe. Errno : %s\n",strerror(errno));
+          return FALSE;
+        }
+    proc[fdStatus].id=fdStatus;
+  return TRUE;
+}
+
+bool openFifoConnection(proc_t *proc,int size,int drStatus){
+
+  char fifoName[FILE_NAME_MAX];
+
+  if(NULL == proc || size<=0 || drStatus<0 || drStatus >=size )
+    return FALSE;
+
+
+    sprintf(fifoName,"Fifos/%ld-%d.fifo",(long)(proc[drStatus].pid),proc[drStatus].id);
+    if(FAIL == mkfifo(fifoName,FIFO_PERMS)){
+      if(errno != EEXIST){
+      fprintf(stderr, "Failed to create fifo '%s'. Errno : %s\n",fifoName,strerror(errno));
+      return FALSE;
+      }
+    }
+  return TRUE;
+}
+
+int searchDir(const char *dirPath,const char * word){
+
+  int fd[2];
+  char fifoName[FILE_NAME_MAX];
+  int total=0;
+  /* parent icin fifo olustur */
+  sprintf(fifoName,"%ld-%d.mercan",(long)941544,0);
+
+  fd[1] = open(fifoName,WRITE_FLAGS,FIFO_PERMS);
+  total = searchDirRec(dirPath,word,fd[1]);
+
+  return total;
+}
+
+int getID(proc_t *proc,int size,pid_t pid){
+
+  int i=0;
+  if(NULL == proc || size <=0)
+    return FAIL;
+
+  for(i=0;i<size;++i){
+    if(proc[i].pid == pid)
+      return i;
+  }
+  return FAIL;
+}
+
+
+int searchDirRec(const char *dirPath, const char *word,int fd){
   DIR *pDir = NULL;
   struct dirent *pDirent=NULL;
-  pid_t pidChild;
+  pid_t pidChild=-1;
   pid_t pidReturned;
   int totalWord=0;
-  int **fd=NULL;
-  int **fifoD=NULL;
+  proc_t *t_procFile=NULL;
+  proc_t *t_procDir=NULL;
   int fileNumber=0;
   int fdStatus;
   int drStatus;
   int directoryNumber=0;
   char path[PATH_MAX];
-  int i=0;
+  char fifoName[FILE_NAME_MAX];
+
+  #ifdef DEBUG
+  printf("+>Directory : %s opened!\n",dirPath);
+  #endif
 
   if(NULL == (pDir = opendir(dirPath))){
-    fprintf(stderr,"Failed to open dir : \"%s\". Errno : %s\n",
-                                                  dirPath,strerror(errno));
+    fprintf(stderr,"Failed to open: \"%s\". Errno : %s\n",dirPath,strerror(errno));
     return FAIL;
   }
 
-  while(NULL != (pDirent = readdir(pDir))){
-    sprintf(path,"%s/%s",dirPath,pDirent->d_name);
-    if(strcmp(pDirent->d_name,".")!=0 && strcmp(pDirent->d_name,"..")!=0){
-      if(TRUE == isDirectory(path)){
-          ++directoryNumber;
-      }
-      if(TRUE == isRegularFile(path)){
-        ++fileNumber;
-      }
-    }
-  }
+  findContentNumbers(pDir,dirPath,&fileNumber,&directoryNumber);
 
-  #ifdef DEBUG
-    printf("%s - ",dirPath);
-    printf("File number : %d  - Directory Number : %d\n",fileNumber,directoryNumber);
-  #endif
-  rewinddir(pDir);
-
-
-  if(fileNumber != 0){
-    fd = (int **)malloc(fileNumber*sizeof(int *));
-    for(i=0;i<fileNumber;++i){
-      fd[i]=(int *)malloc(2*sizeof(int));
-      if(FAIL == pipe(fd[i])){
-        fprintf(stderr, "%d Failed to open pipe. Errno : %s\n",i,strerror(errno));
-        return FAIL;
-      }
-    }
-}
-
-  if(directoryNumber != 0){
-    fifoD = (int **)malloc(directoryNumber*sizeof(int *));
-    if(fifoD == NULL)
-      printf("control");
-    for(i=0;i<directoryNumber;++i){
-      fifoD[i]=(int *)malloc(2*sizeof(int));
-    }
-}
+  t_procFile = createProcessArrays(fileNumber);
+  t_procDir = createProcessArrays(directoryNumber);
 
 
 fdStatus=-1;
 drStatus=-1;
   while(NULL != (pDirent = readdir(pDir))){
+    bool isFileProc=FALSE;
       sprintf(path,"%s/%s",dirPath,pDirent->d_name);
-      #ifdef DEBUG
-        printf("Item path : %s\n",path);
-      #endif
       if(strcmp(pDirent->d_name,".")!=0 && strcmp(pDirent->d_name,"..")!=0){
         if(TRUE == isDirectory(path)){
-          /*TODO :DIRECTORY SEARCH*/
+          ++drStatus;
         }else if(TRUE == isRegularFile(path)){
+          isFileProc = TRUE;
           ++fdStatus;
-          if((pidChild = fork()) == FAIL){
-            fprintf(stderr,"Failed to create fork. Errno : %s\n",strerror(errno));
-            exit(FAIL);
+        }
+        if((pidChild = fork()) == FAIL){
+          fprintf(stderr,"Failed to create fork. Errno : %s\n",strerror(errno));
+          exit(FAIL);
+        }
+        if(pidChild == 0){
+          break;
+        }else{
+          if(isFileProc == TRUE){
+            t_procFile[fdStatus].pid = pidChild;
+            openPipeConnection(t_procFile,fileNumber,fdStatus);
+          }else{
+            t_procDir[drStatus].pid = pidChild;
+            openFifoConnection(t_procDir,directoryNumber,drStatus);
           }
-          if(pidChild == 0){
-            /*closedir(pDir);*/
-            break;
-          }
+
         }
       }
   }
 
 
-
-
+/*  currentProc = getProc()*/
   /* eger cocuk ise*/
   if(pidChild == 0){
     if(TRUE == isRegularFile(path)){
-      close(fd[fdStatus][0]); /* READ KAPISI KAPALI */
-      totalWord += findOccurencesInFile(fd[fdStatus][1],path,word);
-      close(fd[fdStatus][1]);
-    }else if(TRUE == isDirectory(path)){
-      /* TODO : CONTROL DIRECTORY */
+      close(t_procFile[fdStatus].fd[0]); /* READ KAPISI KAPALI */
+      totalWord += findOccurencesInFile(t_procFile[fdStatus].fd[1],path,word);
+      close(t_procFile[fdStatus].fd[1]);
+    }else if(TRUE == isDirectory(path) && drStatus != -1){
+      sprintf(fifoName,"Fifos/%ld-%d.fifo",(long)getpid(),drStatus);
+      t_procDir[drStatus].fd[1] = open(fifoName,WRITE_FLAGS,FD_MODE);
+      searchDirRec(path,word,  t_procDir[drStatus].fd[1]);
+      exit(DIR_PROC_DEAD); /* directory oldugunu bildir */
     }
-
     closedir(pDir);
-    freePtr(fd,fileNumber);
-    freePtr(fifoD,directoryNumber);
+    freePtr(t_procFile,fileNumber);
+    freePtr(t_procDir,directoryNumber);
     pDir = NULL;
     pDirent = NULL;
-    fd = NULL;
-    fifoD = NULL;
-    exit(fdStatus);
-  }else{
+    t_procFile = NULL;
+    t_procDir = NULL;
+    exit(FILE_PROC_DEAD);
 
-    int childFd;
+  }else if(pidChild > 0){
+    int whoDead;
     int status;
-    int logfd = open("log.log",(O_WRONLY),FIFO_PERMS);
+    int id;
 
     while(FAIL != (pidReturned = wait(&status))){
-      childFd = WEXITSTATUS(status);
-
-      close(fd[childFd][0]);/* wrıte KAPISI KAPALI */
-      close(fd[childFd][1]);
-      copyfile(fd[childFd][0],logfd);
-      close(fd[childFd][0]);
+      whoDead = WEXITSTATUS(status);
+      if(whoDead ==  FILE_PROC_DEAD){
+         id = getID(t_procFile,fileNumber,pidReturned);
+        close(t_procFile[id].fd[1]);
+        copyfile(t_procFile[id].fd[0],fd);
+        close(t_procFile[id].fd[0]);
+      }else{
+        char fifoName[FILE_NAME_MAX];
+        id = getID(t_procDir,directoryNumber,pidReturned);
+        sprintf(fifoName,"Fifos/%ld-%d.fifo",(long)pidReturned,id);
+        t_procDir[id].fd[0] = open(fifoName,READ_FLAGS);
+        copyfile(t_procDir[id].fd[0],fd);
+      }
     }
-    close(logfd);
   }
-
   closedir(pDir);
   pDir=NULL;
   pDirent=NULL;
-  freePtr(fd,fileNumber);
-  freePtr(fifoD,directoryNumber);
-  fd = NULL;
-  fifoD = NULL;
+  freePtr(t_procFile,fileNumber);
+  freePtr(t_procDir,directoryNumber);
+  t_procFile = NULL;
+  t_procDir = NULL;
   return totalWord;
 }
 
-void freePtr(int **ptr,int size){
-  int i=0;
-  printf("Size : %d",size);
+void freePtr(proc_t *proc,int size){
   if(size != 0){
-    for(i=0;i<size;++i)
-      free(ptr[i]);
-    free(ptr);
+    free(proc);
   }
 }
 
@@ -219,7 +295,7 @@ ssize_t r_read(int fd, void *buf, size_t size) {
 }
 
 ssize_t r_write(int fd, void *buf, size_t size) {
-   char *bufp;
+  char *bufp;
    size_t bytestowrite;
    ssize_t byteswritten;
    size_t totalbytes;

@@ -23,12 +23,20 @@
 #define FILE_NAME_MAX 20
 #define COORDINAT_TEXT_MAX 30
 #define BLKSIZE 512
+#define FILE_PROC_DEAD 1
+#define DIR_PROC_DEAD 0
 
 
 /* Yeni Sayisal Tip*/
 typedef enum{
   FALSE=0,TRUE=1
 }bool;
+
+typedef struct{
+  pid_t pid;
+  int fd[2];
+  int id;
+}proc_t;
 
 /*Maksimum dosya yolu uzunlugu*/
 #ifndef PATH_MAX
@@ -47,6 +55,9 @@ typedef enum{
 * @param word : aranacak kelime
 * @return toplam bulunan kelime sayisini
 */
+int searchDirRec(const char *dirPath,const char *word,int fd);
+
+
 int searchDir(const char *dirPath,const char *word);
 
 /* BU FONKSIYON DERS KITABINDAN ALINMISTIR
@@ -94,7 +105,9 @@ int findOccurencesInFile(int fd,const char* fileName,const char *word);
 */
 char *getStringOfNumber(long number);
 
-void freePtr(int **ptr,int size);
+void freePtr(proc_t *proc,int size);
+
+void findContentNumbers(DIR* pdir,const char *dirPath,int *fileNumber,int *dirNumber);
 
 ssize_t r_read(int fd, void *buf, size_t size);
 ssize_t r_write(int fd, void *buf, size_t size);
