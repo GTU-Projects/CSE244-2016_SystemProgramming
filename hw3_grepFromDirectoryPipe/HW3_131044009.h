@@ -35,7 +35,6 @@ typedef enum{
 typedef struct{
   pid_t pid;
   int fd[2];
-  int id;
 }proc_t;
 
 /*Maksimum dosya yolu uzunlugu*/

@@ -45,7 +45,7 @@ arkaya bulununca imleci geriye cek ve devam et. Tum eslesen kelimeleri bul
          /*  EGER KELIME VARSA LOG FILE AC VE YAZ YOKSA ELLEME */
         if(logCreated == FALSE){
           /* log dosyasinin basina bilgilendirme olarak path basildi */
-          write(fd,fileName,strlen(fileName));
+          printf("www%dwww\n",(int)write(fd,fileName,strlen(fileName)));
           write(fd,"\n",1);
           logCreated =TRUE;
         }
@@ -98,9 +98,10 @@ void findContentNumbers(DIR* pDir,const char *dirPath,int *fileNumber,int *dirNu
 
 /* her procesin bilgisini kaydetmek icin dizi olustur*/
 proc_t *createProcessArrays(int size){
+  proc_t *arr=NULL;
   if(size <=0)
-    return NULL;
-  return (proc_t *)malloc(sizeof(proc_t)*size);
+    return arr;
+  return (proc_t*)malloc(sizeof(proc_t)*size);
 }
 
 
@@ -113,35 +114,34 @@ proc_t *createProcessArrays(int size){
   @param pid : processin id si
   @return : islem sonucu
 */
-bool openPipeConnection(proc_t *proc,int size,int fdStatus){
+bool openPipeConnection(proc_t *ppPipeArr,int size,int fdStatus){
 
-  if(NULL == proc || size<=0 || fdStatus<0 || fdStatus >=size )
+  if(NULL == ppPipeArr || size<=0 || fdStatus<0 || fdStatus >=size )
     return FALSE;
 
-    if(FAIL == pipe(proc[fdStatus].fd)){
+    if(FAIL == pipe(ppPipeArr[fdStatus].fd)){
       fprintf(stderr, "Failed to open pipe. Errno : %s\n",strerror(errno));
           return FALSE;
     }
-    proc[fdStatus].id=fdStatus;
-    proc[fdStatus].pid = getpid();
 
+    ppPipeArr[fdStatus].pid = getpid();
     #ifdef DEBUG
-      printf("#Pipe opened. Status : %d, Pid : %ld\n",fdStatus,(long)proc[fdStatus].pid);
+      printf("#Pipe opened. Status : %d. Pid : %ld\n",
+                                      fdStatus,(long)ppPipeArr[fdStatus].pid);
     #endif
 
   return TRUE;
 }
 
-bool openFifoConnection(proc_t *proc,int size,int drStatus){
+bool openFifoConnection(proc_t *ppFifoArr,int size,int drStatus){
 
   char fifoName[FILE_NAME_MAX];
 
-  if(NULL == proc || size<=0 || drStatus<0 || drStatus >=size )
+  if(NULL == ppFifoArr || size<=0 || drStatus<0 || drStatus >=size )
     return FALSE;
 
-  proc[drStatus].id = drStatus;
-
-  sprintf(fifoName,"%ld.fifo",(long)proc[drStatus].pid);
+    /* childin pid si ile acacak*/
+  sprintf(fifoName,"%ld.fifo",(long)ppFifoArr[drStatus].pid);
 
   printf("Fifo : %s created.\n",fifoName);
   if(FAIL == mkfifo(fifoName,FIFO_PERMS)){
@@ -169,19 +169,17 @@ int searchDir(const char *dirPath,const char * word){
   return total;
 }
 
-int getID(proc_t *proc,int size,pid_t pid){
+int getID(proc_t *arr,int size,pid_t pid){
 
   int i=0;
-  if(NULL == proc || size <=0)
+  if(NULL == arr || size <=0)
     return FAIL;
 
-  for(i=0;i<size;++i){
-    if(proc[i].pid == pid)
+  for(i=0;i<size;++i)
+    if(arr[i].pid==pid)
       return i;
-  }
   return FAIL;
 }
-
 
 int searchDirRec(const char *dirPath, const char *word,int fd){
   DIR *pDir = NULL;
@@ -189,8 +187,8 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
   pid_t pidChild=-1;
   pid_t pidReturned;
   int totalWord=0;
-  proc_t *t_procFile=NULL;
-  proc_t *t_procDir=NULL;
+  proc_t *ppPipeArr=NULL;
+  proc_t *ppFifoArr=NULL;
   int fileNumber=0;
   int fdStatus;
   int drStatus;
@@ -210,8 +208,8 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
 
   findContentNumbers(pDir,dirPath,&fileNumber,&directoryNumber);
 
-  t_procFile = createProcessArrays(fileNumber);
-  t_procDir = createProcessArrays(directoryNumber);
+  ppPipeArr = createProcessArrays(fileNumber);
+  ppFifoArr = createProcessArrays(directoryNumber);
 
   fdStatus=-1;
   drStatus=-1;
@@ -225,32 +223,32 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
         }else if(TRUE == isRegularFile(path)){
           isFileProc = TRUE;
           ++fdStatus;
-          openPipeConnection(t_procFile,fileNumber,fdStatus);
+          /* forktan once sirasiyla pipe ac*/
+          openPipeConnection(ppPipeArr,fileNumber,fdStatus);
         }
 
         if((pidChild = fork()) == FAIL){
           fprintf(stderr,"Failed to create fork. Errno : %s\n",strerror(errno));
           exit(FAIL);
         }
-
         if(pidChild == 0){
           break;
         }else{
           if(isFileProc == TRUE){
-            /* daha sonra hangi cocuk olduysa onun pidinden dosyalara ulas*/
-            t_procFile[fdStatus].pid = pidChild;
+            /* pipe lere id leri koyki daha sonradan olen cocugun
+            pid sine gore pipe ini bul ve ordan okuma yap */
+            ppPipeArr[fdStatus].pid = pidChild;
           }else{
             /* FIFO NUN READ UCUNU AC*/
-            t_procDir[drStatus].pid = pidChild;
-            openFifoConnection(t_procDir,directoryNumber,drStatus);
-            sprintf(fifoName,"%ld.fifo",(long)t_procDir[drStatus].pid);
-            t_procDir[drStatus].fd[0]= open(fifoName, O_RDONLY) ;
-             if (t_procDir[drStatus].fd[0] == -1) {
+            ppFifoArr[drStatus].pid = pidChild;
+            openFifoConnection(ppFifoArr,directoryNumber,drStatus);
+            sprintf(fifoName,"%ld.fifo",(long)ppFifoArr[drStatus].pid);
+            ppFifoArr[drStatus].fd[0]= open(fifoName, O_RDONLY) ;
+             if (ppFifoArr[drStatus].fd[0] == -1) {
                 fprintf(stderr, "[%ld]:failed to open named pipe %s for read: %s\n",
                        (long)getpid(), fifoName, strerror(errno));
                 return -1;
              }
-
           }
         }
       }
@@ -260,33 +258,32 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
   if(pidChild == 0){
     int whichProcDead=0;
     if(TRUE == isRegularFile(path) && fdStatus != -1){
-      close(t_procFile[fdStatus].fd[0]); /* READ KAPISI KAPALI */
-      totalWord += findOccurencesInFile(t_procFile[fdStatus].fd[1],path,word);
-      close(t_procFile[fdStatus].fd[1]);
+      close(ppPipeArr[fdStatus].fd[0]); /* READ KAPISI KAPALI */
+      totalWord += findOccurencesInFile(ppPipeArr[fdStatus].fd[1],path,word);
+      close(ppPipeArr[fdStatus].fd[1]);
       whichProcDead = FILE_PROC_DEAD;
     }else if(TRUE == isDirectory(path) && drStatus != -1){
-
       sprintf(fifoName,"%ld.fifo",(long)getpid());
-      t_procDir[drStatus].fd[1] = open(fifoName,O_WRONLY);
-      if (t_procDir[drStatus].fd[1] == -1) {
+      ppFifoArr[drStatus].fd[1] = open(fifoName,O_WRONLY);
+      if (ppFifoArr[drStatus].fd[1] == -1) {
       fprintf(stderr, "[%ld]:failed to open named pipe %s for write: %s\n",
              (long)getpid(), fifoName, strerror(errno));
       exit(1);
       }
 
-      searchDirRec(path,word,t_procDir[drStatus].fd[1]);
-      close(t_procDir[drStatus].fd[1]);
+      searchDirRec(path,word,ppFifoArr[drStatus].fd[1]);
+      close(ppFifoArr[drStatus].fd[1]);
       unlink(fifoName);
       whichProcDead = (DIR_PROC_DEAD); /* directory oldugunu bildir */
     }
 
     closedir(pDir);
-    freePtr(t_procFile,fileNumber);
-    freePtr(t_procDir,directoryNumber);
+    freePtr(ppPipeArr,fileNumber);
+    freePtr(ppFifoArr,directoryNumber);
     pDir = NULL;
     pDirent = NULL;
-    t_procFile = NULL;
-    t_procDir = NULL;
+    ppPipeArr = NULL;
+    ppFifoArr = NULL;
     exit(whichProcDead);
   }else if(pidChild > 0){
     int whoDead;
@@ -296,30 +293,30 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
     while(FAIL != (pidReturned = wait(&status))){
       whoDead = WEXITSTATUS(status);
       if(whoDead ==  FILE_PROC_DEAD){
-        id = getID(t_procFile,fileNumber,pidReturned);
-        close(t_procFile[id].fd[1]);
-        copyfile(t_procFile[id].fd[0],fd);
-        close(t_procFile[id].fd[0]);
+        id = getID(ppPipeArr,fileNumber,pidReturned);
+        close(ppPipeArr[id].fd[1]);
+        copyfile(ppPipeArr[id].fd[0],fd);
+        close(ppPipeArr[id].fd[0]);
       }else{
-        id = getID(t_procDir,directoryNumber,pidReturned);
-        copyfile(t_procDir[id].fd[0],fd);
-        close(t_procDir[id].fd[0]);
+        id = getID(ppFifoArr,directoryNumber,pidReturned);
+        copyfile(ppFifoArr[id].fd[0],fd);
+        close(ppFifoArr[id].fd[0]);
       }
     }
   }
   closedir(pDir);
   pDir=NULL;
   pDirent=NULL;
-  freePtr(t_procFile,fileNumber);
-  freePtr(t_procDir,directoryNumber);
-  t_procFile = NULL;
-  t_procDir = NULL;
+  freePtr(ppPipeArr,fileNumber);
+  freePtr(ppFifoArr,directoryNumber);
+  ppFifoArr = NULL;
+  ppPipeArr = NULL;
   return totalWord;
 }
 
-void freePtr(proc_t *proc,int size){
+void freePtr(proc_t *arr,int size){
   if(size != 0){
-    free(proc);
+    free(arr);
   }
 }
 
