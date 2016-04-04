@@ -33,6 +33,7 @@ typedef enum{
 }bool;
 
 typedef struct{
+  int place;
   pid_t pid;
   int fd[2];
 }proc_t;

@@ -26,7 +26,7 @@ int findOccurencesInFile(int fd,const char* fileName,const char *word){
     return FAIL;
   }
 
-  #ifdef DEBUG
+  #ifdef DEBUG2
   printf("[%ld] searches in :%s\n",(long)getpid(),fileName);
   #endif
 /* Karakter karakter ilerleyerek kelimeyi bul. Kelimenin tum karekterleri arka
@@ -45,13 +45,13 @@ arkaya bulununca imleci geriye cek ve devam et. Tum eslesen kelimeleri bul
          /*  EGER KELIME VARSA LOG FILE AC VE YAZ YOKSA ELLEME */
         if(logCreated == FALSE){
           /* log dosyasinin basina bilgilendirme olarak path basildi */
-          printf("www%dwww\n",(int)write(fd,fileName,strlen(fileName)));
+          write(fd,fileName,strlen(fileName));
           write(fd,"\n",1);
           logCreated =TRUE;
         }
         lseek(fdFileToRead,-i+1,SEEK_CUR);
         column =column - i+1;
-        #ifdef DEBUG
+        #ifdef DEBUG2
         printf("%d. %d %d\n",found,row,column);
         #endif
         sprintf(wordCoordinats,"%d%c%d%c%d%c",found,'.',row,' ',column,'\n');
@@ -90,7 +90,7 @@ void findContentNumbers(DIR* pDir,const char *dirPath,int *fileNumber,int *dirNu
     }
   }
     #ifdef DEBUG
-      printf("+->Founded %d file and %d in %s.\n",*fileNumber,*dirNumber,dirPath);
+      printf("-->Founded %d file and %d in %s.\n",*fileNumber,*dirNumber,dirPath);
     #endif
     rewinddir(pDir);
     pDirent=NULL;
@@ -98,9 +98,14 @@ void findContentNumbers(DIR* pDir,const char *dirPath,int *fileNumber,int *dirNu
 
 /* her procesin bilgisini kaydetmek icin dizi olustur*/
 proc_t *createProcessArrays(int size){
+
   proc_t *arr=NULL;
   if(size <=0)
     return arr;
+
+  #ifdef DEBUG
+  printf("[%ld] create process array.\n",(long)getpid());
+  #endif
   return (proc_t*)malloc(sizeof(proc_t)*size);
 }
 
@@ -140,8 +145,9 @@ bool openFifoConnection(proc_t *ppFifoArr,int size,int drStatus){
   if(NULL == ppFifoArr || size<=0 || drStatus<0 || drStatus >=size )
     return FALSE;
 
+
     /* childin pid si ile acacak*/
-  sprintf(fifoName,"%ld.fifo",(long)ppFifoArr[drStatus].pid);
+  sprintf(fifoName,"%ld-%d.fifo",(long)ppFifoArr[drStatus].pid,drStatus);
 
   printf("Fifo : %s created.\n",fifoName);
   if(FAIL == mkfifo(fifoName,FIFO_PERMS)){
@@ -220,6 +226,8 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
       if(strcmp(pDirent->d_name,".")!=0 && strcmp(pDirent->d_name,"..")!=0){
         if(TRUE == isDirectory(path)){
           ++drStatus;
+          ppFifoArr[drStatus].pid = getpid();
+          openFifoConnection(ppFifoArr,directoryNumber,drStatus);
         }else if(TRUE == isRegularFile(path)){
           isFileProc = TRUE;
           ++fdStatus;
@@ -240,15 +248,15 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
             ppPipeArr[fdStatus].pid = pidChild;
           }else{
             /* FIFO NUN READ UCUNU AC*/
-            ppFifoArr[drStatus].pid = pidChild;
-            openFifoConnection(ppFifoArr,directoryNumber,drStatus);
-            sprintf(fifoName,"%ld.fifo",(long)ppFifoArr[drStatus].pid);
+            ppFifoArr[drStatus].pid = getpid();
+            sprintf(fifoName,"%ld-%d.fifo",(long)ppFifoArr[drStatus].pid,drStatus);
             ppFifoArr[drStatus].fd[0]= open(fifoName, O_RDONLY) ;
              if (ppFifoArr[drStatus].fd[0] == -1) {
                 fprintf(stderr, "[%ld]:failed to open named pipe %s for read: %s\n",
                        (long)getpid(), fifoName, strerror(errno));
                 return -1;
              }
+             ppFifoArr[drStatus].pid = pidChild;
           }
         }
       }
@@ -262,8 +270,18 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
       totalWord += findOccurencesInFile(ppPipeArr[fdStatus].fd[1],path,word);
       close(ppPipeArr[fdStatus].fd[1]);
       whichProcDead = FILE_PROC_DEAD;
+
+      closedir(pDir);
+      freePtr(ppPipeArr,fileNumber);
+      freePtr(ppFifoArr,directoryNumber);
+      pDir = NULL;
+      pDirent = NULL;
+      ppPipeArr = NULL;
+      ppFifoArr = NULL;
+      exit(whichProcDead);
     }else if(TRUE == isDirectory(path) && drStatus != -1){
-      sprintf(fifoName,"%ld.fifo",(long)getpid());
+      pid_t temp;
+      sprintf(fifoName,"%ld-%d.fifo",(long)getppid(),drStatus);
       ppFifoArr[drStatus].fd[1] = open(fifoName,O_WRONLY);
       if (ppFifoArr[drStatus].fd[1] == -1) {
       fprintf(stderr, "[%ld]:failed to open named pipe %s for write: %s\n",
@@ -271,20 +289,18 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
       exit(1);
       }
 
-      searchDirRec(path,word,ppFifoArr[drStatus].fd[1]);
-      close(ppFifoArr[drStatus].fd[1]);
+      closedir(pDir);
+      temp = ppFifoArr[drStatus].fd[1];
+      freePtr(ppPipeArr,fileNumber);
+      freePtr(ppFifoArr,directoryNumber);
+      searchDirRec(path,word,temp);
+      close(temp);
       unlink(fifoName);
       whichProcDead = (DIR_PROC_DEAD); /* directory oldugunu bildir */
+      exit(whichProcDead);
     }
 
-    closedir(pDir);
-    freePtr(ppPipeArr,fileNumber);
-    freePtr(ppFifoArr,directoryNumber);
-    pDir = NULL;
-    pDirent = NULL;
-    ppPipeArr = NULL;
-    ppFifoArr = NULL;
-    exit(whichProcDead);
+
   }else if(pidChild > 0){
     int whoDead;
     int status;
@@ -316,6 +332,9 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
 
 void freePtr(proc_t *arr,int size){
   if(size != 0){
+    #ifdef DEBUG
+    printf("[%ld] free process array.\n",(long)getpid());
+    #endif
     free(arr);
   }
 }

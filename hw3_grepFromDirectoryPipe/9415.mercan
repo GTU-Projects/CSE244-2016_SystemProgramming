@@ -1,4 +1,44 @@
-Dir/awords.txt
+Dir/1/cwords.txt
+1.0 6
+2.1 4
+3.2 3
+4.4 0
+Dir/Dir1-2/v.txt
+1.0 6
+2.1 4
+3.2 3
+4.4 0
+Dir/Dir1-2/d.txt
+1.0 6
+2.1 4
+3.2 3
+4.4 0
+Dir/Dir1-1/Dir1-1-1/awords2.txt
+1.0 6
+2.1 4
+3.2 3
+4.4 0
+Dir/Dir1-1/Dir1-1-1/awords.txt
+1.0 6
+2.1 4
+3.2 3
+4.4 0
+Dir/Dir1-1/Dir1-1-1/awords3.txt
+1.0 6
+2.1 4
+3.2 3
+4.4 0
+Dir/Dir1-1/cwords.txt
+1.0 6
+2.1 4
+3.2 3
+4.4 0
+Dir/Dir1-1/Dir1-1-2/bwords2.txt
+1.0 6
+2.1 4
+3.2 3
+4.4 0
+Dir/Dir1-1/Dir1-1-2/bwords.txt
 1.0 6
 2.1 4
 3.2 3

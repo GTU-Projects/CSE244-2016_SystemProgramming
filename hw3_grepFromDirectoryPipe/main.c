@@ -15,7 +15,6 @@
 int main(int argc,char *argv[]){
 
   int totalFound=0;
-
   if(argc != 3){
     fprintf(stderr,"Usage : %s DirectoryName \"string\" ",argv[0]);
     return 1;
