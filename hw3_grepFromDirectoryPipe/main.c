@@ -21,11 +21,7 @@ int main(int argc,char *argv[]){
     return 1;
   }
 
-
   totalFound = searchDir(argv[1],argv[2]);
   printf("TOTAL : %d\n",totalFound);
-  exit(1);
-
-
   return 0;
 }

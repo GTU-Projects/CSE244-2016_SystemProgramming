@@ -11,7 +11,6 @@
 #include "HW3_131044009.h"
 
 
-
 int findOccurencesInFile(int fd,const char* fileName,const char *word){
   char wordCoordinats[COORDINAT_TEXT_MAX];/* dosyaya koordinatlari basmak icin string yuvasi */
   int fdFileToRead; /* okunacak dosya fildesi */
@@ -56,7 +55,7 @@ arkaya bulununca imleci geriye cek ve devam et. Tum eslesen kelimeleri bul
         printf("%d. %d %d\n",found,row,column);
         #endif
         sprintf(wordCoordinats,"%d%c%d%c%d%c",found,'.',row,' ',column,'\n');
-        write(fd,wordCoordinats,strlen(wordCoordinats)+1);
+        write(fd,wordCoordinats,strlen(wordCoordinats));
         i=0;
       }
     }else{
@@ -94,18 +93,26 @@ void findContentNumbers(DIR* pDir,const char *dirPath,int *fileNumber,int *dirNu
       printf("+->Founded %d file and %d in %s.\n",*fileNumber,*dirNumber,dirPath);
     #endif
     rewinddir(pDir);
+    pDirent=NULL;
 }
 
-/* her process icin dizi olustur*/
+/* her procesin bilgisini kaydetmek icin dizi olustur*/
 proc_t *createProcessArrays(int size){
-  proc_t * arr;
   if(size <=0)
     return NULL;
-  arr=(proc_t *)malloc(sizeof(proc_t)*size);
-  return arr;
+  return (proc_t *)malloc(sizeof(proc_t)*size);
 }
 
-/* icindeki pipeleri ac*/
+
+/**
+  Process dizisinden processi ilklendirmek icin kullanilir.
+  File icin olan processlere pipe acar.
+  @param proc : hangi process dizisine islem yapilacagi
+  @param size : toplam process sayisi
+  @param fdStatus : processin dizideki konumu
+  @param pid : processin id si
+  @return : islem sonucu
+*/
 bool openPipeConnection(proc_t *proc,int size,int fdStatus){
 
   if(NULL == proc || size<=0 || fdStatus<0 || fdStatus >=size )
@@ -114,8 +121,14 @@ bool openPipeConnection(proc_t *proc,int size,int fdStatus){
     if(FAIL == pipe(proc[fdStatus].fd)){
       fprintf(stderr, "Failed to open pipe. Errno : %s\n",strerror(errno));
           return FALSE;
-        }
+    }
     proc[fdStatus].id=fdStatus;
+    proc[fdStatus].pid = getpid();
+
+    #ifdef DEBUG
+      printf("#Pipe opened. Status : %d, Pid : %ld\n",fdStatus,(long)proc[fdStatus].pid);
+    #endif
+
   return TRUE;
 }
 
@@ -126,27 +139,32 @@ bool openFifoConnection(proc_t *proc,int size,int drStatus){
   if(NULL == proc || size<=0 || drStatus<0 || drStatus >=size )
     return FALSE;
 
+  proc[drStatus].id = drStatus;
 
-    sprintf(fifoName,"Fifos/%ld-%d.fifo",(long)(proc[drStatus].pid),proc[drStatus].id);
-    if(FAIL == mkfifo(fifoName,FIFO_PERMS)){
-      if(errno != EEXIST){
-      fprintf(stderr, "Failed to create fifo '%s'. Errno : %s\n",fifoName,strerror(errno));
-      return FALSE;
-      }
+  sprintf(fifoName,"%ld.fifo",(long)proc[drStatus].pid);
+
+  printf("Fifo : %s created.\n",fifoName);
+  if(FAIL == mkfifo(fifoName,FIFO_PERMS)){
+    if(errno != EEXIST){
+      fprintf(stderr,"FIFO ERROR : %s",strerror(errno));
+      exit(FAIL);
     }
+  }
   return TRUE;
 }
 
 int searchDir(const char *dirPath,const char * word){
 
-  int fd[2];
+  int fd;
   char fifoName[FILE_NAME_MAX];
   int total=0;
-  /* parent icin fifo olustur */
-  sprintf(fifoName,"%ld-%d.mercan",(long)941544,0);
+  /* parent icin log olustur */
+  sprintf(fifoName,"%ld.mercan",(long)9415);
 
-  fd[1] = open(fifoName,WRITE_FLAGS,FIFO_PERMS);
-  total = searchDirRec(dirPath,word,fd[1]);
+  fd = open(fifoName,WRITE_FLAGS,FIFO_PERMS);
+  total = searchDirRec(dirPath,word,fd);
+
+  close(fd);
 
   return total;
 }
@@ -181,6 +199,7 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
   char fifoName[FILE_NAME_MAX];
 
   #ifdef DEBUG
+  printf("[%ld]",(long)getpid());
   printf("+>Directory : %s opened!\n",dirPath);
   #endif
 
@@ -194,52 +213,73 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
   t_procFile = createProcessArrays(fileNumber);
   t_procDir = createProcessArrays(directoryNumber);
 
-
-fdStatus=-1;
-drStatus=-1;
+  fdStatus=-1;
+  drStatus=-1;
   while(NULL != (pDirent = readdir(pDir))){
     bool isFileProc=FALSE;
       sprintf(path,"%s/%s",dirPath,pDirent->d_name);
+
       if(strcmp(pDirent->d_name,".")!=0 && strcmp(pDirent->d_name,"..")!=0){
         if(TRUE == isDirectory(path)){
           ++drStatus;
         }else if(TRUE == isRegularFile(path)){
           isFileProc = TRUE;
           ++fdStatus;
+          openPipeConnection(t_procFile,fileNumber,fdStatus);
         }
+
         if((pidChild = fork()) == FAIL){
           fprintf(stderr,"Failed to create fork. Errno : %s\n",strerror(errno));
           exit(FAIL);
         }
+
         if(pidChild == 0){
           break;
         }else{
           if(isFileProc == TRUE){
+            /* daha sonra hangi cocuk olduysa onun pidinden dosyalara ulas*/
             t_procFile[fdStatus].pid = pidChild;
-            openPipeConnection(t_procFile,fileNumber,fdStatus);
           }else{
+            /* FIFO NUN READ UCUNU AC*/
             t_procDir[drStatus].pid = pidChild;
             openFifoConnection(t_procDir,directoryNumber,drStatus);
-          }
+            sprintf(fifoName,"%ld.fifo",(long)t_procDir[drStatus].pid);
+            t_procDir[drStatus].fd[0]= open(fifoName, O_RDONLY) ;
+             if (t_procDir[drStatus].fd[0] == -1) {
+                fprintf(stderr, "[%ld]:failed to open named pipe %s for read: %s\n",
+                       (long)getpid(), fifoName, strerror(errno));
+                return -1;
+             }
 
+          }
         }
       }
   }
 
-
-/*  currentProc = getProc()*/
   /* eger cocuk ise*/
   if(pidChild == 0){
-    if(TRUE == isRegularFile(path)){
+    int whichProcDead=0;
+    if(TRUE == isRegularFile(path) && fdStatus != -1){
       close(t_procFile[fdStatus].fd[0]); /* READ KAPISI KAPALI */
       totalWord += findOccurencesInFile(t_procFile[fdStatus].fd[1],path,word);
       close(t_procFile[fdStatus].fd[1]);
+      whichProcDead = FILE_PROC_DEAD;
     }else if(TRUE == isDirectory(path) && drStatus != -1){
-      sprintf(fifoName,"Fifos/%ld-%d.fifo",(long)getpid(),drStatus);
-      t_procDir[drStatus].fd[1] = open(fifoName,WRITE_FLAGS,FD_MODE);
-      searchDirRec(path,word,  t_procDir[drStatus].fd[1]);
-      exit(DIR_PROC_DEAD); /* directory oldugunu bildir */
+
+      sprintf(fifoName,"%ld.fifo",(long)getpid());
+      t_procDir[drStatus].fd[1] = open(fifoName,O_WRONLY);
+      if (t_procDir[drStatus].fd[1] == -1) {
+      fprintf(stderr, "[%ld]:failed to open named pipe %s for write: %s\n",
+             (long)getpid(), fifoName, strerror(errno));
+      exit(1);
+      }
+
+      searchDirRec(path,word,t_procDir[drStatus].fd[1]);
+      close(t_procDir[drStatus].fd[1]);
+      unlink(fifoName);
+      whichProcDead = (DIR_PROC_DEAD); /* directory oldugunu bildir */
     }
+
     closedir(pDir);
     freePtr(t_procFile,fileNumber);
     freePtr(t_procDir,directoryNumber);
@@ -247,8 +287,7 @@ drStatus=-1;
     pDirent = NULL;
     t_procFile = NULL;
     t_procDir = NULL;
-    exit(FILE_PROC_DEAD);
-
+    exit(whichProcDead);
   }else if(pidChild > 0){
     int whoDead;
     int status;
@@ -257,16 +296,14 @@ drStatus=-1;
     while(FAIL != (pidReturned = wait(&status))){
       whoDead = WEXITSTATUS(status);
       if(whoDead ==  FILE_PROC_DEAD){
-         id = getID(t_procFile,fileNumber,pidReturned);
+        id = getID(t_procFile,fileNumber,pidReturned);
         close(t_procFile[id].fd[1]);
         copyfile(t_procFile[id].fd[0],fd);
         close(t_procFile[id].fd[0]);
       }else{
-        char fifoName[FILE_NAME_MAX];
         id = getID(t_procDir,directoryNumber,pidReturned);
-        sprintf(fifoName,"Fifos/%ld-%d.fifo",(long)pidReturned,id);
-        t_procDir[id].fd[0] = open(fifoName,READ_FLAGS);
         copyfile(t_procDir[id].fd[0],fd);
+        close(t_procDir[id].fd[0]);
       }
     }
   }
