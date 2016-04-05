@@ -10,11 +10,13 @@
 #include <wait.h>
 #include "HW3_131044009.h"
 
-
+/*
+* Dosyadan okuma yaparak kelime arar ve gerekli bilgileri fd ye yazar.
+**/
 int findOccurencesInFile(int fd,const char* fileName,const char *word){
   char wordCoordinats[COORDINAT_TEXT_MAX];/* dosyaya koordinatlari basmak icin string yuvasi */
   int fdFileToRead; /* okunacak dosya fildesi */
-  char buf;
+  char buf; /* tek karakter okumalik buffer */
   int i=0;
   int column=-1;
   int row=0;
@@ -26,7 +28,7 @@ int findOccurencesInFile(int fd,const char* fileName,const char *word){
     return FAIL;
   }
 
-  #ifdef DEBUG2
+  #ifdef DEBUG_FILE_READ
   printf("[%ld] searches in :%s\n",(long)getpid(),fileName);
   #endif
 /* Karakter karakter ilerleyerek kelimeyi bul. Kelimenin tum karekterleri arka
@@ -51,7 +53,7 @@ arkaya bulununca imleci geriye cek ve devam et. Tum eslesen kelimeleri bul
         }
         lseek(fdFileToRead,-i+1,SEEK_CUR);
         column =column - i+1;
-        #ifdef DEBUG2
+        #ifdef DEBUG_FILE_READ
         printf("%d. %d %d\n",found,row,column);
         #endif
         sprintf(wordCoordinats,"%d%c%d%c%d%c",found,'.',row,' ',column,'\n');
@@ -67,7 +69,10 @@ arkaya bulununca imleci geriye cek ve devam et. Tum eslesen kelimeleri bul
   return found;
 }
 
-
+/*
+* Verilen klasor icindeki klasor ve regular dosya sayisini output paramtere
+* olarak return eder.
+*/
 void findContentNumbers(DIR* pDir,const char *dirPath,int *fileNumber,int *dirNumber){
   struct dirent * pDirent=NULL;
   char path[PATH_MAX];
@@ -96,28 +101,21 @@ void findContentNumbers(DIR* pDir,const char *dirPath,int *fileNumber,int *dirNu
     pDirent=NULL;
 }
 
-/* her procesin bilgisini kaydetmek icin dizi olustur*/
+/* her procesin bilgisini kaydetmek icin dinamik dizi olusturur*/
 proc_t *createProcessArrays(int size){
-
   proc_t *arr=NULL;
   if(size <=0)
     return arr;
 
   #ifdef DEBUG
-  printf("[%ld] create process array.\n",(long)getpid());
+  printf("[%ld] created %d process array.\n",(long)getpid(),size);
   #endif
   return (proc_t*)malloc(sizeof(proc_t)*size);
 }
 
 
-/**
-  Process dizisinden processi ilklendirmek icin kullanilir.
-  File icin olan processlere pipe acar.
-  @param proc : hangi process dizisine islem yapilacagi
-  @param size : toplam process sayisi
-  @param fdStatus : processin dizideki konumu
-  @param pid : processin id si
-  @return : islem sonucu
+/*
+* Bu fonksiyon proces arrayi icinde belirli olan procesin pipe kapisini acar
 */
 bool openPipeConnection(proc_t *ppPipeArr,int size,int fdStatus){
 
@@ -138,6 +136,10 @@ bool openPipeConnection(proc_t *ppPipeArr,int size,int fdStatus){
   return TRUE;
 }
 
+/*
+* Belirtilen process icin fifo acar.
+* fifoName : procesID-drStatus.fifo
+*/
 bool openFifoConnection(proc_t *ppFifoArr,int size,int drStatus){
 
   char fifoName[FILE_NAME_MAX];
@@ -145,8 +147,7 @@ bool openFifoConnection(proc_t *ppFifoArr,int size,int drStatus){
   if(NULL == ppFifoArr || size<=0 || drStatus<0 || drStatus >=size )
     return FALSE;
 
-
-    /* childin pid si ile acacak*/
+    /* childin pid si ve status ile acacak*/
   sprintf(fifoName,"%ld-%d.fifo",(long)ppFifoArr[drStatus].pid,drStatus);
 
   printf("Fifo : %s created.\n",fifoName);
@@ -159,24 +160,26 @@ bool openFifoConnection(proc_t *ppFifoArr,int size,int drStatus){
   return TRUE;
 }
 
+/*
+  Bu fonksiyon wrapper olarak kullanilacak. Kullaniciya daha kolay kullanim
+  saglamak amaciyla recursive arama yapacak searchDir metodunu cagirir.
+  Detayli bilgi headerde.
+*/
 int searchDir(const char *dirPath,const char * word){
-
   int fd;
   char fifoName[FILE_NAME_MAX];
   int total=0;
   /* parent icin log olustur */
-  sprintf(fifoName,"%ld.mercan",(long)9415);
-
-  fd = open(fifoName,WRITE_FLAGS,FIFO_PERMS);
+  fd = open(DEF_LOG_FILE_NAME,WRITE_FLAGS,FIFO_PERMS);
   total = searchDirRec(dirPath,word,fd);
-
   close(fd);
-
   return total;
 }
 
+/*
+  id si verilen procesin array icindeki konumunu return eder.
+*/
 int getID(proc_t *arr,int size,pid_t pid){
-
   int i=0;
   if(NULL == arr || size <=0)
     return FAIL;
@@ -187,6 +190,9 @@ int getID(proc_t *arr,int size,pid_t pid){
   return FAIL;
 }
 
+/*
+  Recursive olarak directory icinde arama yapar. Buldugu sonucları fd ye yazar.
+*/
 int searchDirRec(const char *dirPath, const char *word,int fd){
   DIR *pDir = NULL;
   struct dirent *pDirent=NULL;
@@ -212,8 +218,10 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
     return FAIL;
   }
 
+  /* onceden toplam file/dir sayisini bulalim*/
   findContentNumbers(pDir,dirPath,&fileNumber,&directoryNumber);
 
+  /* Proces bilgilerini kaydetmek icin arayimizi olusturalim*/
   ppPipeArr = createProcessArrays(fileNumber);
   ppFifoArr = createProcessArrays(directoryNumber);
 
@@ -222,8 +230,8 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
   while(NULL != (pDirent = readdir(pDir))){
     bool isFileProc=FALSE;
       sprintf(path,"%s/%s",dirPath,pDirent->d_name);
-
       if(strcmp(pDirent->d_name,".")!=0 && strcmp(pDirent->d_name,"..")!=0){
+        /* klasor bulma durumunda fifoyu ac */
         if(TRUE == isDirectory(path)){
           ++drStatus;
           ppFifoArr[drStatus].pid = getpid();
@@ -235,6 +243,7 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
           openPipeConnection(ppPipeArr,fileNumber,fdStatus);
         }
 
+        /* FORKING */
         if((pidChild = fork()) == FAIL){
           fprintf(stderr,"Failed to create fork. Errno : %s\n",strerror(errno));
           exit(FAIL);
@@ -248,7 +257,7 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
             ppPipeArr[fdStatus].pid = pidChild;
           }else{
             /* FIFO NUN READ UCUNU AC*/
-            ppFifoArr[drStatus].pid = getpid();
+            ppFifoArr[drStatus].pid = getpid(); /* once annenin pidiyle pipe ac*/
             sprintf(fifoName,"%ld-%d.fifo",(long)ppFifoArr[drStatus].pid,drStatus);
             ppFifoArr[drStatus].fd[0]= open(fifoName, O_RDONLY) ;
              if (ppFifoArr[drStatus].fd[0] == -1) {
@@ -256,7 +265,8 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
                        (long)getpid(), fifoName, strerror(errno));
                 return -1;
              }
-             ppFifoArr[drStatus].pid = pidChild;
+             ppFifoArr[drStatus].pid = pidChild; /* daha sonradan erisim
+              icin cocugun pidini yaz*/
           }
         }
       }
@@ -265,12 +275,12 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
   /* eger cocuk ise*/
   if(pidChild == 0){
     int whichProcDead=0;
+
     if(TRUE == isRegularFile(path) && fdStatus != -1){
       close(ppPipeArr[fdStatus].fd[0]); /* READ KAPISI KAPALI */
       totalWord += findOccurencesInFile(ppPipeArr[fdStatus].fd[1],path,word);
       close(ppPipeArr[fdStatus].fd[1]);
       whichProcDead = FILE_PROC_DEAD;
-
       closedir(pDir);
       freePtr(ppPipeArr,fileNumber);
       freePtr(ppFifoArr,directoryNumber);
@@ -279,6 +289,7 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
       ppPipeArr = NULL;
       ppFifoArr = NULL;
       exit(whichProcDead);
+
     }else if(TRUE == isDirectory(path) && drStatus != -1){
       pid_t temp;
       sprintf(fifoName,"%ld-%d.fifo",(long)getppid(),drStatus);
@@ -289,6 +300,7 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
       exit(1);
       }
 
+      /* Recursive cagridan oncedaha onceden acilan arrayleri free et*/
       closedir(pDir);
       temp = ppFifoArr[drStatus].fd[1];
       freePtr(ppPipeArr,fileNumber);
@@ -300,26 +312,28 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
       exit(whichProcDead);
     }
 
-
   }else if(pidChild > 0){
     int whoDead;
     int status;
     int id;
 
+    /* anne cocuklari olunce bilgileri toplar*/
     while(FAIL != (pidReturned = wait(&status))){
       whoDead = WEXITSTATUS(status);
-      if(whoDead ==  FILE_PROC_DEAD){
+      if(whoDead ==  FILE_PROC_DEAD){ /* file ise pipe tan okuma yap */
         id = getID(ppPipeArr,fileNumber,pidReturned);
         close(ppPipeArr[id].fd[1]);
         copyfile(ppPipeArr[id].fd[0],fd);
         close(ppPipeArr[id].fd[0]);
       }else{
+        /* dosya processi geldigi icin fifodan okuma yap */
         id = getID(ppFifoArr,directoryNumber,pidReturned);
         copyfile(ppFifoArr[id].fd[0],fd);
         close(ppFifoArr[id].fd[0]);
       }
     }
   }
+  /* FREE VE DANGLING POINTER ISLEMLERI*/
   closedir(pDir);
   pDir=NULL;
   pDirent=NULL;
@@ -330,6 +344,9 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
   return totalWord;
 }
 
+/*
+  PROCESS arrayini free eder.
+*/
 void freePtr(proc_t *arr,int size){
   if(size != 0){
     #ifdef DEBUG
