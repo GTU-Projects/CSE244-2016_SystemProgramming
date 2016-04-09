@@ -9,6 +9,7 @@
 #include <dirent.h> /* DIR *, struct dirent * */
 #include <wait.h>
 #include "HW3_131044009.h"
+#include <signal.h>
 
 /*
 * Dosyadan okuma yaparak kelime arar ve gerekli bilgileri fd ye yazar.
@@ -148,9 +149,11 @@ bool openFifoConnection(proc_t *ppFifoArr,int size,int drStatus){
     return FALSE;
 
     /* childin pid si ve status ile acacak*/
-  sprintf(fifoName,"%ld-%d.fifo",(long)ppFifoArr[drStatus].pid,drStatus);
+  sprintf(fifoName,"/tmp/.%ld-%d.fifo",(long)ppFifoArr[drStatus].pid,drStatus);
 
+  #ifdef DEBUG
   printf("Fifo : %s created.\n",fifoName);
+  #endif
   if(FAIL == mkfifo(fifoName,FIFO_PERMS)){
     if(errno != EEXIST){
       fprintf(stderr,"FIFO ERROR : %s",strerror(errno));
@@ -167,12 +170,21 @@ bool openFifoConnection(proc_t *ppFifoArr,int size,int drStatus){
 */
 int searchDir(const char *dirPath,const char * word){
   int fd;
-  char fifoName[FILE_NAME_MAX];
   int total=0;
+  int temp=0;
+  FILE *fpTotal;
   /* parent icin log olustur */
-  fd = open(DEF_LOG_FILE_NAME,WRITE_FLAGS,FIFO_PERMS);
-  total = searchDirRec(dirPath,word,fd);
+  fd = open(DEF_LOG_FILE_NAME,(O_WRONLY | O_CREAT),FD_MODE);
+  searchDirRec(dirPath,word,fd);
   close(fd);
+
+  fpTotal = fopen(TOTAL_AMOUNT_LOG,"r");
+  while(fscanf(fpTotal,"%d",&temp)!=EOF){
+    total+=temp;
+  }
+  fclose(fpTotal);
+  unlink(TOTAL_AMOUNT_LOG);
+
   return total;
 }
 
@@ -258,7 +270,7 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
           }else{
             /* FIFO NUN READ UCUNU AC*/
             ppFifoArr[drStatus].pid = getpid(); /* once annenin pidiyle pipe ac*/
-            sprintf(fifoName,"%ld-%d.fifo",(long)ppFifoArr[drStatus].pid,drStatus);
+            sprintf(fifoName,"/tmp/.%ld-%d.fifo",(long)ppFifoArr[drStatus].pid,drStatus);
             ppFifoArr[drStatus].fd[0]= open(fifoName, O_RDONLY) ;
              if (ppFifoArr[drStatus].fd[0] == -1) {
                 fprintf(stderr, "[%ld]:failed to open named pipe %s for read: %s\n",
@@ -277,8 +289,14 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
     int whichProcDead=0;
 
     if(TRUE == isRegularFile(path) && fdStatus != -1){
+      FILE *fpTotal;
       close(ppPipeArr[fdStatus].fd[0]); /* READ KAPISI KAPALI */
       totalWord += findOccurencesInFile(ppPipeArr[fdStatus].fd[1],path,word);
+
+      fpTotal = fopen(TOTAL_AMOUNT_LOG,"a+");
+      fprintf(fpTotal,"%d\n",totalWord);
+      fclose(fpTotal);
+
       close(ppPipeArr[fdStatus].fd[1]);
       whichProcDead = FILE_PROC_DEAD;
       closedir(pDir);
@@ -292,7 +310,7 @@ int searchDirRec(const char *dirPath, const char *word,int fd){
 
     }else if(TRUE == isDirectory(path) && drStatus != -1){
       pid_t temp;
-      sprintf(fifoName,"%ld-%d.fifo",(long)getppid(),drStatus);
+      sprintf(fifoName,"/tmp/.%ld-%d.fifo",(long)getppid(),drStatus);
       ppFifoArr[drStatus].fd[1] = open(fifoName,O_WRONLY);
       if (ppFifoArr[drStatus].fd[1] == -1) {
       fprintf(stderr, "[%ld]:failed to open named pipe %s for write: %s\n",

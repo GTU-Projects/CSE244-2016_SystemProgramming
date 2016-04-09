@@ -7,6 +7,7 @@
 #include <fcntl.h> /* open close */
 #include <string.h> /* strerror */
 #include <errno.h> /* errno */
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <dirent.h> /* DIR *, struct dirent * */
@@ -17,7 +18,6 @@
 #define WRITE_FLAGS (O_WRONLY | O_APPEND | O_CREAT)
 #define FD_MODE (S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 #define FAIL -1
-#define SUCCESS 0
 #define CHILD_PROCESS 0
 #define FILE_NAME_MAX 20
 #define COORDINAT_TEXT_MAX 30
@@ -30,12 +30,17 @@ typedef enum{
   FALSE=0,TRUE=1
 }bool;
 
+
+
 /* Her process icin tutulacak bilgiler*/
 typedef struct{
   int place; /* processin indisi*/
   pid_t pid; /* process pid numarasi */
   int fd[2]; /* processin erisebilecegi fd ler */
 }proc_t;
+
+
+
 
 /*Maksimum dosya yolu uzunlugu*/
 #ifndef PATH_MAX
@@ -44,6 +49,8 @@ typedef struct{
 
 /* Standart log dosya ismi*/
 #define DEF_LOG_FILE_NAME "gfd.log"
+#define TOTAL_AMOUNT_LOG ".hmenn.hmenn"
+
 
 /*
 * Bu fonksiyon parametre olarak verilen dosyanin icindeki klasor ve regular file
@@ -149,8 +156,14 @@ proc_t *createProcessArrays(int size);
   @param pid : processin id si
   @return : islem sonucu
 */
-bool openPipeConnection(proc_t *ppPipeArr,int size,int fdStatus)
+bool openPipeConnection(proc_t *ppPipeArr,int size,int fdStatus);
 
+
+/*
+  Verilen dinamik process arraylerini free eder.
+  @param proc : free edilecek arraylerini
+  @param size : array boyutu
+*/
 void freePtr(proc_t *proc,int size);
 
 

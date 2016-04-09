@@ -1,0 +1,9 @@
+    131044009 - HASAN MEN -- HW3  GREPFROMDIR
+
+USAGE : ./exec DirName word
+
+- Valgrind errorlari check edildi.
+- Her klasor icin fifo, her dosya icin pipe acildi.
+- toplam kac bulundugu son olarak stdout a basiliyor.
+- Ctrl+C sinyalleri tutuldu. SigAction fonksiyonu tek parametre aldigi icin 
+    sinyal esnasinda silinemeyen dosyalar tedbir icin /tmp/*.fifo olarak acildi.

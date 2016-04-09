@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-c -DDEBUG -Wall -ansi -pedantic-errors
+CFLAGS=-c -Wall -ansi -pedantic-errors
 
 all: GrepFromDirectory clean
 
@@ -16,4 +16,3 @@ clean:
 	rm -rf *.o
 	rm -rf *~
 	rm -rf *.fifo
-	rm -rf *.mercan
