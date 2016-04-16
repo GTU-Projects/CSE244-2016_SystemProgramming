@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-c -Wall -ansi -pedantic-errors
+CFLAGS=-c  -D_POSIX_C_SOURCE -Wall -ansi -pedantic-errors
 
 all: GrepFromDirectory clean
 
