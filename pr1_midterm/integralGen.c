@@ -10,13 +10,14 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <math.h>
+#include <limits.h>
 
 
 /* PREPROCESSORS DEFINE */
 
 #define FILE_NAME_SIZE 255
 #define LOG_FILE_NAME "integralGen.log"
-#define SERVER_FIFO_NAME "hmenn.ff"
+#define MAIN_SERVER_FIFO_NAME "hmenn.ff"
 
 #define RW_FLAG O_RDWR
 
@@ -25,14 +26,17 @@
 FILE *fpLog =NULL;
 pid_t pid;
 pid_t *pPidClients = NULL;
-int iMaxClient;
+int iMaxClient=0;
+int iCurrentClientNumber=0;
 
 void sigHandler(int signalNo);
 
 
 int main(int argc,char *argv[]){
-  int fdFifo=0;
+  int fdMainServerRead=0;
+  int fdMainServerWrite=0;
   pid_t pidChild;
+  int iAPipe[2];
 
   if(argc != 3 || argv[1][0]!='-' || argv[2][0]!='-'){
     fprintf(stderr,"Command-Line arguments failed.\n");
@@ -40,6 +44,7 @@ int main(int argc,char *argv[]){
     exit(0);
   }
 
+  signal(SIGINT,sigHandler);
   fpLog = fopen(LOG_FILE_NAME,"a");
   if(NULL == fpLog){
     fprintf(stderr,"Failed to open %s. [Errno : %s]",LOG_FILE_NAME,strerror(errno));
@@ -49,12 +54,12 @@ int main(int argc,char *argv[]){
   pid = getpid();
 
 
-  mkfifo(SERVER_FIFO_NAME,0666);
+  mkfifo(MAIN_SERVER_FIFO_NAME,0666);
 
-  fdFifo = open(SERVER_FIFO_NAME,RW_FLAG);
-  if(fdFifo == -1){
-    fprintf(stderr,"Failed to open Server FIFO\n");
-    fprintf(fpLog, "Failed to open Server FIFO\n");
+  fdMainServerRead = open(MAIN_SERVER_FIFO_NAME,O_RDONLY);
+  if(fdMainServerRead == -1){
+    fprintf(stderr,"Failed to open MainServer FIFO\n");
+    fprintf(fpLog, "Failed to open MainServer FIFO\n");
     fclose(fpLog);
     exit(0);
   }
@@ -68,24 +73,66 @@ int main(int argc,char *argv[]){
     fclose(fpLog);
     exit(0);
   }
+  pPidClients = (pid_t*)calloc(sizeof(pid_t),iMaxClient);
+  printf("Server[%ld] Started.\n",(long)pid);
+  while(1){
+    pid_t pidConnectedClient=0;
+    printf("Main Server waits for clients.\n");
+    if(0 !=read(fdMainServerRead,&pidConnectedClient,sizeof(pid_t) )){
+      pPidClients[iCurrentClientNumber++]=pidConnectedClient;
+      pipe(iAPipe);
 
+      if(-1 == (pidChild = fork())){
+        fprintf(stderr, "Failed to fork operation.\n");
+        fprintf(fpLog,"Failed to fork operation.\n");
+        fclose(fpLog);
+        //TODO : YASAYAN COCUKLARA OLMELERI ICIN SINYAL GONDERILECEK YOKSA ZOMBIE KALIR
+        exit(0);
+      }
 
-  pid_t pidConnectedClient;
-  while(0 != read(fdFifo,&pidConnectedClient,sizeof(pid_t))){
+      // child-server
+      if(pidChild == 0){
+        signal(SIGINT,sigHandler);
+        pid_t pidChild;
 
-    printf("Client[%ld] connected.\n",(long)pidConnectedClient);
+        int fdMiniServerRead;
+        int fdMiniServerWrite;
 
-    if(-1 == (pidChild = fork())){
-      fprintf(stderr, "Failed to fork operation.\n");
-      fprintf(fpLog,"Failed to fork operation.\n");
-      fclose(fpLog);
-      //TODO : YASAYAN COCUKLARA OLMELERI ICIN SINYAL GONDERILECEK YOKSA ZOMBIE KALIR
-    }
+        char strMiniFifoName[CHAR_MAX];
+        pidChild=getpid();
+        // client ile olusacak server buradan haberlesecek
+        sprintf(strMiniFifoName,"Logs/%ld.sff",(long)pidChild);
+        if(mkfifo(strMiniFifoName,0666) != 0){
+          if(errno != EEXIST){
+            fprintf(stderr,"Failed to open fifo : %s\n",strMiniFifoName);
+            fprintf(fpLog,"Failed to open fifo : %s\n",strMiniFifoName);
+            exit(1);
+          }
+        }
 
+        if(-1 == (fdMiniServerRead = open(strMiniFifoName,O_RDWR))){
+          fprintf(stderr, "Failed to open MiniServerFifo to read.\n");
+          fprintf(fpLog, "Failed to open MiniServerFifo[%ld] to read.\n",(long)pidChild);
+          exit(0);
+        }
+        printf("MiniServer[%ld] created.\n",(long)pidChild);
+        printf("Client[%ld] connected to %s.\n",(long)pidConnectedClient,strMiniFifoName);
+        int a=3;
+        read(fdMiniServerRead,&a,sizeof(int));
+        fprintf(stderr,"MiniServer Read : %d\n",a);
+        exit(0);
+      }else{
 
-
-
-
+        usleep(500);
+        fdMainServerWrite = open(MAIN_SERVER_FIFO_NAME,O_RDWR);
+        if(-1 == fdMainServerWrite){
+          fprintf(stderr, "Failed to open MainServerFifo to write.\n");
+          fprintf(fpLog, "Failed to open MainServerFifo to write.\n");
+          exit(0);
+        }
+        write(fdMainServerWrite,&pidChild,sizeof(pid_t));
+      }
+    }else break;
   }
 
 
@@ -97,12 +144,14 @@ int main(int argc,char *argv[]){
 void sigHandler(int signalNo){
 
   int i=0;
-  for(i=0;i<iMaxClient;++i)
+  for(i=0;i<iMaxClient;++i){
+    printf("Killed %d.[%ld].\n",i,(long)pPidClients[i]);
     kill(pPidClients[i],SIGINT);
+  }
 
-  unlink(SERVER_FIFO_NAME);
+  unlink(MAIN_SERVER_FIFO_NAME);
   printf("SIGINT HANDLED\n");
-  fprintf(fpLog,"SIGINT HANDLED FROM INTEGRALGEN\n");
+  fprintf(fpLog,"SIGINT HANDLED\n");
   fclose(fpLog);
   exit(signalNo);
 }

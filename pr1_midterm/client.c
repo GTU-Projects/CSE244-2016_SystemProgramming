@@ -16,20 +16,27 @@
 
 
 char strClientLog[CHAR_MAX]; // max 127 in limits.h
+char strConnectedServer[CHAR_MAX];
+pid_t pidConnectedServer;
+FILE *fpClientLog;
 
+void sigHandler(int signalNo);
 
 char *parseFile(const char* fileName);
 
 int main(int argc,char* argv[]){
 
   int iTimeInterval=0;
-  int fdServer;
+  int fdServerWrite;
+  int fdServerRead;
   pid_t pidClient;
   char cOperator;
   char *fi=NULL;
   char *fj=NULL;
-  FILE *fpClientLog;
-  pid_t pidConnectedServer;
+
+
+
+  signal(SIGINT,sigHandler);
 
   char tempExp[2]="2";
 
@@ -55,36 +62,65 @@ int main(int argc,char* argv[]){
 
   #ifdef DEBUG
     printf("# CLIENT COMMAND-LINE DEBUG\n");
+    printf("Client[%ld] started.\n",(long)pidClient);
     printf("--Fi file : %s\n",&argv[1][1]);
     printf("--Fj file : %s\n",&argv[2][1]);
     printf("--Tİme Interval : %d\n",iTimeInterval);
     printf("--Operator : %c\n",cOperator);
   #endif
 
-
-  if(-1 == (fdServer = open(SERVER_FIFO_NAME,O_WRONLY))){
-    fprintf(stderr,"Client[%ld] failed to connect server.\n",(long)pidClient);
-    fprintf(fpClientLog,"Client[%ld] failed to connect server.\n",(long)pidClient);
+  if(-1 == (fdServerWrite = open(SERVER_FIFO_NAME,O_WRONLY))){
+    fprintf(stderr,"Client[%ld] failed to connect MainServer.\n",(long)pidClient);
+    fprintf(fpClientLog,"Client[%ld] failed to connect MainServer.\n",(long)pidClient);
     fclose(fpClientLog);
     exit(0);
   }
 
-  write(fdServer,&pidClient,sizeof(pid_t));
 
-  read(fdServer,&pidConnectedServer,sizeof(pid_t));
-  printf("Client[%ld] connected SERVER[%ld].",(long)pidClient,(long)pidConnectedServer);
+  int iWriteCheck=0;
+  // servere pidini yolla
+  iWriteCheck = write(fdServerWrite,&pidClient,sizeof(pid_t));
+  printf("Client[%ld] writed %d bytes.\n",(long)pidClient,iWriteCheck);
+  close(fdServerWrite);
 
+  // serverden yeni serverin pidini oku
+  // bitaz bekle ma
 
+  if(-1 == (fdServerRead = open(SERVER_FIFO_NAME,O_RDWR))){
+    fprintf(stderr,"Client[%ld] failed to connect MainServer.\n",(long)pidClient);
+    fprintf(fpClientLog,"Client[%ld] failed to connect MainServer.\n",(long)pidClient);
+    fclose(fpClientLog);
+    exit(0);
+  }
 
+  usleep(100); // biraz bekletki server tepki versin yoksa takılı kalır
+  read(fdServerRead,&pidConnectedServer,sizeof(pid_t));
+  sprintf(strConnectedServer,"Logs/%ld.sff",(long)pidConnectedServer);
 
+  if(-1 == (fdServerWrite = open(strConnectedServer,O_RDONLY))){
+    fprintf(stderr,"Client[%ld] failed to connect MiniServerFifo : %s\n",(long)pidClient,strConnectedServer);
+    fprintf(fpClientLog,"Client[%ld] failed to connect MiniServerFifo : %s\n",(long)pidClient,strConnectedServer);
+    fclose(fpClientLog);
+    exit(0);
+  }
 
+  printf("Client[%ld] connected MiniServer[%ld].\n",(long)pidClient,(long)pidConnectedServer);
+  int a=3;
+  write(fdServerWrite,&a,sizeof(int));
 
-
-
-
-
-
-
+  printf("Printed %d\n",a);
+  sleep(5);
+  exit(0);
 
   return 0;
+}
+
+void sigHandler(int signalNo){
+
+  kill(pidConnectedServer,SIGINT);
+
+  printf("SIGINT HANDLED\n");
+  fprintf(fpClientLog,"SIGINT HANDLED\n");
+  fclose(fpClientLog);
+  exit(signalNo);
 }
