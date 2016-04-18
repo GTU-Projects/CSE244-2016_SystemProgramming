@@ -14,15 +14,29 @@
 
 #define SERVER_FIFO_NAME "hmenn.ff"
 
+typedef enum {
+  FALSE=0,TRUE=1
+}bool;
+
+char *cpFiName;
+char *cpFjName;
+char *cpFiContent=NULL;
+char *cpFjContent=NULL;
+char *cpOperator=NULL;
+char cOperator;
+
 
 char strClientLog[CHAR_MAX]; // max 127 in limits.h
 char strConnectedServer[CHAR_MAX];
 pid_t pidConnectedServer;
 FILE *fpClientLog;
 
+
 void sigHandler(int signalNo);
 
-char *parseFile(const char* fileName);
+char giveOperator(const char * cpOperator);
+
+char *parseFile(const char* cpfileName);
 
 int main(int argc,char* argv[]){
 
@@ -30,22 +44,17 @@ int main(int argc,char* argv[]){
   int fdServerWrite;
   int fdServerRead;
   pid_t pidClient;
-  char cOperator;
-  char *fi=NULL;
-  char *fj=NULL;
-
-
 
   signal(SIGINT,sigHandler);
 
   char tempExp[2]="2";
 
-  if(argc != 5){
+  if(argc != 5 ||argv[1][0] !='-' || argv[2][0] !='-' || argv[3][0] !='-'
+          ||  argv[4][0] !='-'){
     fprintf(stderr,"Command-Line arguments failed.\n");
     fprintf(stderr,"USAGE : ./client -fi -fj -internal -operation\n");
     exit(0);
   }
-
   pidClient = getpid();
   sprintf(strClientLog,"Logs/c-%ld.log",(long)3);
   if(NULL == (fpClientLog = fopen(strClientLog,"w"))){
@@ -53,18 +62,53 @@ int main(int argc,char* argv[]){
     exit(0);
   }
 
-  /* COMMAND LINE KONTROLLERI SIMDILIK DOGRU GIBI DEVAM ET */
+  // *****************  Fi Fj control ************ //
+  cpFiName = &argv[1][1];
+  cpFiContent = parseFile(cpFiName);
+  if(NULL == cpFiContent){
+    if(errno == ENOENT){ // dosya yoksa acilma hatasi ise
+      fprintf(stderr,"Function create error. Errno : %s 'File-> %s'.",strerror(errno),cpFiName);
+    }else {
+      fprintf(stderr,"There is no function in %s.\n",cpFiName);
+    }
+    exit(0);
+  }
 
-  cOperator = argv[4][1];
-  fi=tempExp;
-  fj=tempExp;
+  cpFjName = &argv[2][1];
+  cpFjContent = parseFile(cpFjName);
+  if(NULL == cpFjContent){
+    if(errno == ENOENT){ // dosya yoksa acilma hatasi ise
+      fprintf(stderr,"Function create error. Errno : %s 'File-> %s'.",
+                                              strerror(errno),cpFjName);
+    }else {
+      fprintf(stderr,"There is no function in %s.\n",cpFjName);
+    }
+    exit(0);
+  }
+  // *********** END OF Fi Fj control ************//
+
+  // ******** Operator control */
+
+  cpOperator = argv[4];
+  if(strlen(cpOperator)>1){
+    cOperator = giveOperator(&cpOperator[1]);
+    if(cOperator == '\0'){
+      fprintf(stderr,"Undefined operator. Please use +,-,/,* operators.");
+      exit(0);
+    }
+  }else{
+    fprintf(stderr,"Unentered Operator.\n");
+    exit(0);
+  }
+
+  // ********* END OF OPERATOR CONTROL *********//
   iTimeInterval = atoi(&argv[3][1]);
 
   #ifdef DEBUG
     printf("# CLIENT COMMAND-LINE DEBUG\n");
     printf("Client[%ld] started.\n",(long)pidClient);
-    printf("--Fi file : %s\n",&argv[1][1]);
-    printf("--Fj file : %s\n",&argv[2][1]);
+    printf("--Fi file : %s\n",cpFiName);
+    printf("--Fj file : %s\n",cpFjName);
     printf("--Tİme Interval : %d\n",iTimeInterval);
     printf("--Operator : %c\n",cOperator);
   #endif
@@ -110,7 +154,7 @@ int main(int argc,char* argv[]){
   write(fdServerWrite,&a,sizeof(int));
 
   printf("Printed %d\n",a);
-  sleep(2); // test for sıgnals
+  sleep(5); // test for sıgnals
   exit(0);
 
   return 0;
@@ -124,4 +168,42 @@ void sigHandler(int signalNo){
   fprintf(fpClientLog,"SIGINT HANDLED\n");
   fclose(fpClientLog);
   exit(signalNo);
+}
+
+
+char *parseFile(const char *cpFileName){
+
+  FILE *fpFunctionFile;
+  char *cpFunction =NULL;
+
+
+  fpFunctionFile = fopen(cpFileName,"r");
+
+  if(NULL == fpFunctionFile)
+    return NULL; // errno set edildi, fonksiyonun return degerini kullaninca bak
+
+
+    // test amacli bir array yolla
+  cpFunction = (char *)calloc(sizeof(char),10);
+
+  strcpy(cpFunction,"sin(t)");
+
+
+  return cpFunction;
+
+}
+
+// buraya gonderirken basinda tire olmadan gelmesi lazım
+// daha sonra degisebilecegi icin char * alindi
+char giveOperator(const char *cpOperator){
+
+  if(cpOperator==NULL || strlen(cpOperator)!=1)
+    return '\0';
+
+
+  char op = cpOperator[0];
+
+  if(op =='+' || op=='-' || op=='/' || op=='*')
+    return op;
+  else return '\0';
 }

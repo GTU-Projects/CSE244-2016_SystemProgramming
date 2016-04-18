@@ -51,7 +51,7 @@ int main(int argc,char *argv[]){
 
   pid = getpid();
 
-
+  // TODO : UNLINK EMEYI UNUTMA
   mkfifo(MAIN_SERVER_FIFO_NAME,0666);
 
   fdMainServerRead = open(MAIN_SERVER_FIFO_NAME,O_RDWR);
