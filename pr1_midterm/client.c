@@ -93,11 +93,12 @@ int main(int argc,char* argv[]){
     exit(0);
   }
 
-  usleep(100); // biraz bekletki server tepki versin yoksa takılı kalır
+  usleep(500); // biraz bekletki server tepki versin yoksa takılı kalır
   read(fdServerRead,&pidConnectedServer,sizeof(pid_t));
   sprintf(strConnectedServer,"Logs/%ld.sff",(long)pidConnectedServer);
 
-  if(-1 == (fdServerWrite = open(strConnectedServer,O_RDONLY))){
+  mkfifo(strConnectedServer,0666);
+  if(-1 == (fdServerWrite = open(strConnectedServer,O_WRONLY))){
     fprintf(stderr,"Client[%ld] failed to connect MiniServerFifo : %s\n",(long)pidClient,strConnectedServer);
     fprintf(fpClientLog,"Client[%ld] failed to connect MiniServerFifo : %s\n",(long)pidClient,strConnectedServer);
     fclose(fpClientLog);
@@ -109,7 +110,7 @@ int main(int argc,char* argv[]){
   write(fdServerWrite,&a,sizeof(int));
 
   printf("Printed %d\n",a);
-  sleep(5);
+  sleep(2); // test for sıgnals
   exit(0);
 
   return 0;
