@@ -13,6 +13,13 @@
 #include <limits.h>
 
 
+typedef struct{
+  int iFiSize;
+  int iFjSize;
+  int iTimeInterval;
+  char cOperator;
+}calculate_t;
+
 /* PREPROCESSORS DEFINE */
 
 #define FILE_NAME_SIZE 255
@@ -28,6 +35,9 @@ pid_t pid;
 pid_t *pPidClients = NULL;
 int iMaxClient=0;
 int iCurrentClientNumber=0;
+char *cpFiContent=NULL;
+char *cpFjContent=NULL;
+calculate_t t_client;
 
 void sigHandler(int signalNo);
 
@@ -78,7 +88,10 @@ int main(int argc,char *argv[]){
     pid_t pidConnectedClient=0;
     printf("Main Server waits for clients.\n");
     if(0 !=read(fdMainServerRead,&pidConnectedClient,sizeof(pid_t) )){
-      pPidClients[iCurrentClientNumber++]=pidConnectedClient;
+
+
+      pPidClients[iCurrentClientNumber]=pidConnectedClient;
+      ++iCurrentClientNumber;
       printf("Client[%ld] sent request.\n",(long)pidConnectedClient);
       if(-1 == (pidChild = fork())){
         fprintf(stderr, "Failed to fork operation.\n");
@@ -100,8 +113,9 @@ int main(int argc,char *argv[]){
 
         char strMiniFifoName[CHAR_MAX];
         pidChild=getpid();
-        // client ile olusacak server buradan haberlesecek
-        sprintf(strMiniFifoName,"Logs/%ld.sff",(long)pidChild);
+
+        // client ile haberlesmek icin client pid ile fifo ac
+        sprintf(strMiniFifoName,"Logs/%ld.sff",(long)pidConnectedClient);
         if(mkfifo(strMiniFifoName,0666) != 0){
           if(errno != EEXIST){
             fprintf(stderr,"Failed to open fifo : %s\n",strMiniFifoName);
@@ -109,36 +123,53 @@ int main(int argc,char *argv[]){
             exit(1);
           }
         }
+
         if(-1 == (fdMiniServerRead = open(strMiniFifoName,O_RDWR))){
           fprintf(stderr, "Failed to open MiniServerFifo to read.\n");
           fprintf(fpLog, "Failed to open MiniServerFifo[%ld] to read.\n",(long)pidChild);
           exit(0);
         }
-        printf("MiniServer[%ld] served Client[%ld] on %s\n",(long)pidChild,(long)pidConnectedClient,strMiniFifoName);
-        int a=3;
-        read(fdMiniServerRead,&a,sizeof(int));
-        fprintf(stderr,"MiniServer Read : %d\n",a);
+        printf("MiniServer[%2d] served Client[%ld] on %s\n",iCurrentClientNumber,(long)pidConnectedClient,strMiniFifoName);
+
+
+        // ############ READING INFORMATION FROM SERVER ############# //
+        int iSizeOfFi=0;
+        int iSizeOfFj=0;
+        int iTimeInterval=0;
+        char cOperator;
+
+
+        read(fdMiniServerRead,&t_client,sizeof(calculate_t));
+        cpFiContent = (char *)calloc(sizeof(char),t_client.iFiSize+1);
+        cpFiContent[0]='\0';
+        cpFjContent = (char *)calloc(sizeof(char),t_client.iFjSize+1);
+        cpFjContent[0]='\0';
+        read(fdMiniServerRead,cpFiContent,sizeof(char)*(t_client.iFiSize));
+        cpFiContent[t_client.iFiSize]='\0';
+        read(fdMiniServerRead,cpFjContent,sizeof(char)*(t_client.iFjSize));
+        cpFjContent[t_client.iFjSize]='\0';
+
+
+        #ifdef DEBUG
+        fprintf(stdout,"MiniServer read  fiSize = %d and Fi=%s\n",t_client.iFiSize,cpFiContent);
+        fprintf(stdout,"MiniServer read  fjSize = %d and Fj=%s\n",t_client.iFjSize,cpFjContent);
+        fprintf(stdout,"MiniServer read  iTimeInterval = %d\n",t_client.iTimeInterval);
+        fprintf(stdout,"MiniServer read  cOperator = %c\n",t_client.cOperator);
+        #endif
+
+        printf("MiniServer ended.\n");
+
+        //TODO : ADD MY EXIT HERE
         exit(0);
       }else{
-
-        int fdMainServerWrite=0;
-        fdMainServerWrite = open(MAIN_SERVER_FIFO_NAME,O_WRONLY);
-        if(-1 == fdMainServerWrite){
-          fprintf(stderr, "Failed to open MainServerFifo to write.\n");
-          fprintf(fpLog, "Failed to open MainServerFifo to write.\n");
-          exit(0);
-        }
-        write(fdMainServerWrite,&pidChild,sizeof(pid_t));
-        close(fdMainServerWrite);
-        // main fifo uzerinden haberlesildigi icin parentin biraz beklemesi lazim
-        // yoksa kendi yazdigi pidyi okuyup hata yapacak
-        usleep(500);
+        exit(1);
+        // TODO : PARENT YENI CLIENTLER ICIN BEKLEME DURUMUNA GECECEK
       }
     }else break;
   }
 
 
-
+  unlink(MAIN_SERVER_FIFO_NAME);
   return 0;
 }
 
@@ -151,6 +182,7 @@ void sigHandler(int signalNo){
     kill(pPidClients[i],SIGINT);
   }
 
+  printf("asdasd");
   unlink(MAIN_SERVER_FIFO_NAME);
   printf("SIGINT HANDLED\n");
   fprintf(fpLog,"SIGINT HANDLED\n");

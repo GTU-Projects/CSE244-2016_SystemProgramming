@@ -18,12 +18,21 @@ typedef enum {
   FALSE=0,TRUE=1
 }bool;
 
-char *cpFiName;
-char *cpFjName;
+typedef struct{
+  int iFiSize;
+  int iFjSize;
+  int iTimeInterval;
+  char cOperator;
+}calculate_t;
+
+char *cpFiName=NULL;
+char *cpFjName=NULL;
 char *cpFiContent=NULL;
 char *cpFjContent=NULL;
 char *cpOperator=NULL;
 char cOperator;
+
+calculate_t t_client;
 
 
 char strClientLog[CHAR_MAX]; // max 127 in limits.h
@@ -36,6 +45,7 @@ void sigHandler(int signalNo);
 
 char giveOperator(const char * cpOperator);
 
+void myExit(int exitStatus);
 char *parseFile(const char* cpfileName);
 
 int main(int argc,char* argv[]){
@@ -45,24 +55,27 @@ int main(int argc,char* argv[]){
   int fdServerRead;
   pid_t pidClient;
 
-  signal(SIGINT,sigHandler);
+  signal(SIGINT,sigHandler); // initialize signal handler
 
-  char tempExp[2]="2";
-
+  // ################ Control line arguments ################## //
   if(argc != 5 ||argv[1][0] !='-' || argv[2][0] !='-' || argv[3][0] !='-'
           ||  argv[4][0] !='-'){
     fprintf(stderr,"Command-Line arguments failed.\n");
     fprintf(stderr,"USAGE : ./client -fi -fj -internal -operation\n");
     exit(0);
   }
+
   pidClient = getpid();
+  // TODO : CHANGE CLIENT LOG NAME
   sprintf(strClientLog,"Logs/c-%ld.log",(long)3);
   if(NULL == (fpClientLog = fopen(strClientLog,"w"))){
     fprintf(stderr,"FAILED TO CREATE CLIENT LOG FILE. Errno : %s\n",strerror(errno));
     exit(0);
   }
+  // ********** END OF Line Arguments control ************** //
 
-  // *****************  Fi Fj control ************ //
+
+  //  ############   Fi Fj control  ############  //
   cpFiName = &argv[1][1];
   cpFiContent = parseFile(cpFiName);
   if(NULL == cpFiContent){
@@ -87,22 +100,31 @@ int main(int argc,char* argv[]){
   }
   // *********** END OF Fi Fj control ************//
 
-  // ******** Operator control */
+  // ############ Time Reveal control ############ //
+
+  iTimeInterval = atoi(&argv[3][1]);
+  if(iTimeInterval<=0){
+    fprintf(stderr,"Time Reveal must be bigger than zero.\n");
+    myExit(0);
+  }
+  // *********** end of time reveal control ******** //
+
+  // ############ Operator control ############ //
 
   cpOperator = argv[4];
   if(strlen(cpOperator)>1){
     cOperator = giveOperator(&cpOperator[1]);
     if(cOperator == '\0'){
       fprintf(stderr,"Undefined operator. Please use +,-,/,* operators.");
-      exit(0);
+      myExit(0);
     }
   }else{
     fprintf(stderr,"Unentered Operator.\n");
-    exit(0);
+    myExit(0);
   }
 
   // ********* END OF OPERATOR CONTROL *********//
-  iTimeInterval = atoi(&argv[3][1]);
+
 
   #ifdef DEBUG
     printf("# CLIENT COMMAND-LINE DEBUG\n");
@@ -116,54 +138,77 @@ int main(int argc,char* argv[]){
   if(-1 == (fdServerWrite = open(SERVER_FIFO_NAME,O_WRONLY))){
     fprintf(stderr,"Client[%ld] failed to connect MainServer.\n",(long)pidClient);
     fprintf(fpClientLog,"Client[%ld] failed to connect MainServer.\n",(long)pidClient);
-    fclose(fpClientLog);
-    exit(0);
+    myExit(0); // close file in here
   }
 
 
   int iWriteCheck=0;
-  // servere pidini yolla
+  // send client pid to server. Server will open fifo with client pid
   iWriteCheck = write(fdServerWrite,&pidClient,sizeof(pid_t));
+  #ifdef DEBUG
   printf("Client[%ld] writed %d bytes.\n",(long)pidClient,iWriteCheck);
+  #endif
   close(fdServerWrite);
 
-  // serverden yeni serverin pidini oku
-  // bitaz bekle ma
 
-  if(-1 == (fdServerRead = open(SERVER_FIFO_NAME,O_RDWR))){
-    fprintf(stderr,"Client[%ld] failed to connect MainServer.\n",(long)pidClient);
-    fprintf(fpClientLog,"Client[%ld] failed to connect MainServer.\n",(long)pidClient);
-    fclose(fpClientLog);
-    exit(0);
+  sprintf(strConnectedServer,"Logs/%ld.sff",(long)pidClient);
+
+  /* If server didn't create fifo yet , open it */
+  if(-1 == mkfifo(strConnectedServer,0666) && errno != EEXIST){
+    fprintf(stderr, "Client-MiniServer mkfifo error. %s\n",strerror(errno));
+    fprintf(fpClientLog, "Client-MiniServer mkfifo error. %s\n",strerror(errno));
+    myExit(0);
   }
-
-  usleep(500); // biraz bekletki server tepki versin yoksa takılı kalır
-  read(fdServerRead,&pidConnectedServer,sizeof(pid_t));
-  sprintf(strConnectedServer,"Logs/%ld.sff",(long)pidConnectedServer);
-
-  mkfifo(strConnectedServer,0666);
+  // TODO : MKFIFO ERROR CHECKS
   if(-1 == (fdServerWrite = open(strConnectedServer,O_WRONLY))){
-    fprintf(stderr,"Client[%ld] failed to connect MiniServerFifo : %s\n",(long)pidClient,strConnectedServer);
-    fprintf(fpClientLog,"Client[%ld] failed to connect MiniServerFifo : %s\n",(long)pidClient,strConnectedServer);
+    fprintf(stderr,"Client[%ld] failed to connect MiniServerFifo : %s\n",
+                                          (long)pidClient,strConnectedServer);
+    fprintf(fpClientLog,"Client[%ld] failed to connect MiniServerFifo : %s\n",
+                                          (long)pidClient,strConnectedServer);
     fclose(fpClientLog);
     exit(0);
   }
 
-  printf("Client[%ld] connected MiniServer[%ld].\n",(long)pidClient,(long)pidConnectedServer);
-  int a=3;
-  write(fdServerWrite,&a,sizeof(int));
+  //TODO : SERVER KENDI PIDINI YOLLASIN BURADAN GEREKINCE SERVERI KAPATIRSIN
+  printf("Client[%ld] connected on %s.\n",(long)pidClient,strConnectedServer);
 
-  printf("Printed %d\n",a);
-  sleep(5); // test for sıgnals
-  exit(0);
+  // ################ SERVERE BILGI GONDERME CEVAP ALMA ################ //
+  // TODO : send parameters to server and take result
 
-  return 0;
+
+  t_client.iFiSize = strlen(cpFiContent);
+  t_client.iFjSize = strlen(cpFjContent);
+  t_client.iTimeInterval = iTimeInterval;
+  t_client.cOperator= cOperator;
+
+  write(fdServerWrite,&t_client,sizeof(calculate_t));
+  write(fdServerWrite,cpFiContent,sizeof(char)*(t_client.iFiSize));
+  write(fdServerWrite,cpFjContent,sizeof(char)*(t_client.iFjSize));
+
+
+
+  #ifdef DEBUG
+  printf("Sended  Fi=%d and Fj=%d\n",t_client.iFiSize,t_client.iFjSize);
+  #endif
+
+  myExit(EXIT_SUCCESS);
 }
 
 void sigHandler(int signalNo){
 
-  kill(pidConnectedServer,SIGINT);
+  cpFiName=NULL;
+  cpFjName=NULL;
 
+  if(cpFiContent!=NULL)
+    free(cpFiContent);
+  if(cpFjContent!=NULL)
+    free(cpFjContent);
+
+    //lo kapandıysa tekrardan acip icine yaz
+  if(fpClientLog==NULL)
+    fpClientLog=fopen(strClientLog,"w");
+  cpOperator=NULL;
+  unlink(strConnectedServer);
   printf("SIGINT HANDLED\n");
   fprintf(fpClientLog,"SIGINT HANDLED\n");
   fclose(fpClientLog);
@@ -188,7 +233,7 @@ char *parseFile(const char *cpFileName){
 
   strcpy(cpFunction,"sin(t)");
 
-
+  fclose(fpFunctionFile);
   return cpFunction;
 
 }
@@ -197,6 +242,7 @@ char *parseFile(const char *cpFileName){
 // daha sonra degisebilecegi icin char * alindi
 char giveOperator(const char *cpOperator){
 
+  signal(SIGINT,sigHandler);
   if(cpOperator==NULL || strlen(cpOperator)!=1)
     return '\0';
 
@@ -206,4 +252,24 @@ char giveOperator(const char *cpOperator){
   if(op =='+' || op=='-' || op=='/' || op=='*')
     return op;
   else return '\0';
+}
+
+
+void myExit(int exitStatus){
+
+  signal(SIGINT,sigHandler);
+  cpFiName=NULL;
+  cpFjName=NULL;
+
+  if(cpFiContent!=NULL)
+    free(cpFiContent);
+  if(cpFjContent!=NULL)
+    free(cpFjContent);
+  cpOperator=NULL;
+
+  if(fpClientLog!=NULL)
+    fclose(fpClientLog);
+  unlink(strConnectedServer);
+
+  exit(exitStatus);
 }
