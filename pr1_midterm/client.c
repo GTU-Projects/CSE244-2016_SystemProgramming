@@ -165,8 +165,7 @@ int main(int argc,char* argv[]){
                                           (long)pidClient,strConnectedServer);
     fprintf(fpClientLog,"Client[%ld] failed to connect MiniServerFifo : %s\n",
                                           (long)pidClient,strConnectedServer);
-    fclose(fpClientLog);
-    exit(0);
+    myExit(0);
   }
 
   //TODO : SERVER KENDI PIDINI YOLLASIN BURADAN GEREKINCE SERVERI KAPATIRSIN
@@ -184,12 +183,28 @@ int main(int argc,char* argv[]){
   write(fdServerWrite,&t_client,sizeof(calculate_t));
   write(fdServerWrite,cpFiContent,sizeof(char)*(t_client.iFiSize));
   write(fdServerWrite,cpFjContent,sizeof(char)*(t_client.iFjSize));
+  close(fdServerWrite);
+
+/*
+  mkfifo("a.f",0666);
+  if(-1 == (fdServerRead = open("a.f",O_RDWR))){
+    fprintf(stderr,"Client[%ld] failed to connect MiniServerFifo : %s\n",
+                                          (long)pidClient,strConnectedServer);
+    fprintf(fpClientLog,"Client[%ld] failed to connect MiniServerFifo : %s\n",
+                                          (long)pidClient,strConnectedServer);
+    myExit(0);
+  }
+*/
 
 
+  double result=0;
+  sleep(1);
+  //mkfifo(strConnectedServer,0666);
+  fdServerRead = open(strConnectedServer,O_RDWR);
+  read(fdServerRead,&result,sizeof(double));
+  printf("aa : %d\n",2);
 
-  #ifdef DEBUG
-  printf("Sended  Fi=%d and Fj=%d\n",t_client.iFiSize,t_client.iFjSize);
-  #endif
+  printf("Result = %.4f\n",result);
 
   myExit(EXIT_SUCCESS);
 }

@@ -148,7 +148,23 @@ int main(int argc,char *argv[]){
         cpFiContent[t_client.iFiSize]='\0';
         read(fdMiniServerRead,cpFjContent,sizeof(char)*(t_client.iFjSize));
         cpFjContent[t_client.iFjSize]='\0';
+        close(fdMiniServerRead);
 
+
+
+        double result=9.99;
+
+      /*  mkfifo("a.f",0666);
+        if(-1 == (fdMiniServerWrite = open("a.f",O_WRONLY))){
+          fprintf(stderr, "Failed to open MiniServerFifo to write.\n");
+          fprintf(fpLog, "Failed to open MiniServerFifo[%ld] to write.\n",(long)pidChild);
+          exit(0);
+        }*/
+
+        mkfifo(strMiniFifoName,0666);        
+        fdMiniServerWrite = open(strMiniFifoName,O_WRONLY);
+        write(fdMiniServerWrite,&result,sizeof(double));
+        close(fdMiniServerWrite);
 
         #ifdef DEBUG
         fprintf(stdout,"MiniServer read  fiSize = %d and Fi=%s\n",t_client.iFiSize,cpFiContent);
@@ -162,7 +178,7 @@ int main(int argc,char *argv[]){
         //TODO : ADD MY EXIT HERE
         exit(0);
       }else{
-        exit(1);
+        //exit(1);
         // TODO : PARENT YENI CLIENTLER ICIN BEKLEME DURUMUNA GECECEK
       }
     }else break;
