@@ -174,10 +174,13 @@ int main(int argc,char* argv[]){
 
   read(fdMiniServerRead,&pidConnectedServer,sizeof(pid_t));
   double result;
-  while(read(fdMiniServerRead,&result,sizeof(double))){
-    printf("aa : %d\n",2);
+
+
+  read(fdMiniServerRead,&result,sizeof(double));
     printf("Result = %.4f\n",result);
-  }
+
+  sleep(2);
+
 
   close(fdMiniServerRead);
   myExit(EXIT_SUCCESS);
@@ -191,12 +194,15 @@ void sigHandler(int signalNo){
 
   unlink(strFromMiniServerFifo);
   unlink(strToMiniServerFifo);
-  printf("SIGINT HANDLED\n");
-  printf("%ld",(long)pidConnectedServer);
+  printf("Client[%ld] interrupted with CTRL+C. Server[%ld] closed.\n",
+                                  (long)getpid(),(long)pidConnectedServer);
   if(pidConnectedServer!=-1)
     kill(pidConnectedServer,SIGINT);
-  fprintf(fpClientLog,"SIGINT HANDLED\n");
-  fclose(fpClientLog);
+  fprintf(fpClientLog,"Client[%ld] interrupted with CTRL+C. Server[%ld] closed.\n",
+                                    (long)getpid(),(long)pidConnectedServer);
+  if(fpClientLog!=NULL)
+    fclose(fpClientLog);
+  fpClientLog=NULL;
   exit(signalNo);
 }
 
@@ -222,8 +228,13 @@ void myExit(int exitStatus){
 
   if(fpClientLog!=NULL)
     fclose(fpClientLog);
-  unlink(strFromMiniServerFifo);
-  unlink(strToMiniServerFifo);
+  fpClientLog=NULL;
+    printf("%ld",(long)pidConnectedServer);
+  if(pidConnectedServer!=-1)
+    kill(pidConnectedServer,SIGINT); // eger servere baglanmazsa
+    // -1e kill atarsak pc cokecek
+  /*unlink(strFromMiniServerFifo);
+  unlink(strToMiniServerFifo);*/
 
   exit(exitStatus);
 }

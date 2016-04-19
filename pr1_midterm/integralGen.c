@@ -48,6 +48,7 @@ calculate_t t_client;
 
 void sigHandler(int signalNo);
 void sigHandlerMini(int signalNo);
+void sigDeadHandler(int signalNo);
 void exitHmenn(int exitStatus);
 
 
@@ -62,6 +63,7 @@ int main(int argc,char *argv[]){
   }
 
   signal(SIGINT,sigHandler);
+  signal(SIGCHLD,sigDeadHandler); // cocuk olunce yollanacak sinyali tutacak
   fpLog = fopen(LOG_FILE_NAME,"a");
   if(NULL == fpLog){
     fprintf(stderr,"Failed to open %s. [Errno : %s]",LOG_FILE_NAME,strerror(errno));
@@ -93,9 +95,13 @@ int main(int argc,char *argv[]){
   printf("Server[%ld] Started.\n",(long)pid);
   while(1){
     printf("Main Server waits for clients.\n");
-    if(0 !=read(fdMainServerRead,&pidConnectedClient,sizeof(pid_t) )){
+    if(0 < read(fdMainServerRead,&pidConnectedClient,sizeof(pid_t) )){
 
-
+      if(iCurrentClientNumber >= iMaxClient){
+        fprintf(stderr,"All[%d] servers served. Please try again. Good Bye!",iCurrentClientNumber);
+        kill(pidConnectedClient,SIGINT);
+        continue;
+      }
       pPidClients[iCurrentClientNumber]=pidConnectedClient;
       ++iCurrentClientNumber;
       printf("Client[%ld] sent request.\n",(long)pidConnectedClient);
@@ -162,7 +168,6 @@ int main(int argc,char *argv[]){
         }
 
         write(fdMiniServerWrite,&pidChild,sizeof(pid_t));
-        printf("%ld",(long)pidChild);
         int h=0;
         for(h=0;h<3;++h)
           write(fdMiniServerWrite,&result,sizeof(double));
@@ -178,18 +183,20 @@ int main(int argc,char *argv[]){
         printf("MiniServer ended.\n");
 
         //TODO : ADD MY EXIT HERE
-        //while(1){sleep(2);}
+        while(1){sleep(2);}
+
         exitHmenn(0);
       }else{
-        //sleep(2);
+        //sleep(6);
         //exitHmenn(0);
         // TODO : PARENT YENI CLIENTLER ICIN BEKLEME DURUMUNA GECECEK
       }
-    }else break;
+    }
   }
 
 
   unlink(MAIN_SERVER_FIFO_NAME);
+  printf("Exit Here");
   return 0;
 }
 
@@ -206,7 +213,7 @@ void sigHandler(int signalNo){
 
   int i=0;
 
-  for(i=0;i<iMaxClient;++i){
+  for(i=0;i<iCurrentClientNumber;++i){
     printf("Killed %d.[%ld].\n",i,(long)pPidClients[i]);
     kill(pPidClients[i],SIGINT);
   }
@@ -215,10 +222,9 @@ void sigHandler(int signalNo){
   pPidClients=NULL;
 
   unlink(MAIN_SERVER_FIFO_NAME);
-  printf("asdasd");
 
-  printf("SIGINT HANDLED\n");
-  fprintf(fpLog,"SIGINT HANDLED\n");
+  printf("CTRL-C Signal Handled. Main Server[%ld] closed.\n", (long)getpid());
+  fprintf(fpLog, "CTRL-C Signal Handled. Main Server[%ld] closed.\n", (long)getpid());
   fclose(fpLog);
   exit(signalNo);
 }
@@ -230,8 +236,18 @@ void sigHandlerMini(int signalNo)
 	  unlink(strFromClientFifo);
     unlink(strToClientFifo);
     kill(pidConnectedClient,SIGINT);
-    printf("CTRL-C Signal Handled. Server[%ld] closed.\n", (long)getpid());
-    fprintf(fpLog, "CTRL-C Signal Handled. Server[%ld] closed.\n", (long)getpid());
+    printf("CTRL-C Signal Handled. Mini Server[%ld][%ld] closed.\n",(long)getppid(),(long)getpid());
+    fprintf(fpLog, "CTRL-C Signal Handled. Mini Server[%ld][%ld] closed.\n",(long)getppid(),(long)getpid());
 		fclose(fpLog);
     exit(signalNo);
+}
+
+// sadece parente sinyal giderse tutulur
+void sigDeadHandler(int signalNo){
+  signal(SIGCHLD,sigDeadHandler); // sinyali resetle
+  --iCurrentClientNumber;
+  printf("ChildDead\n");
+  pid_t child=wait(NULL);
+  printf("ID  : %ld and child %ld\n",(long)getpid(),(long)child);
+  //exitHmenn(signalNo);
 }
