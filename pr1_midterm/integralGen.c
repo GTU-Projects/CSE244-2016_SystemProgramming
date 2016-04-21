@@ -11,8 +11,10 @@
 #include <fcntl.h>
 #include <math.h>
 #include <limits.h>
+#include <time.h>
+#include "tinyexpr.h"
 
-
+#define MILLION 1000000L
 #define MAX_FILE_NAME 50
 #define LOG_FILE_NAME "integralGen.log"
 #define MAIN_SERVER_FIFO_NAME "hmenn.ff"
@@ -51,11 +53,64 @@ void sigHandlerMini(int signalNo);
 void sigDeadHandler(int signalNo);
 void exitHmenn(int exitStatus);
 
+long double getdifMic(struct timeval *start,struct timeval *end){
+  return MILLION*(end->tv_sec - start->tv_sec) +end->tv_usec - start->tv_usec;
+}
+
+long double getdifMil(struct timeval *start,struct timeval *end){
+  return 1000*(end->tv_sec - start->tv_sec) +(end->tv_usec - start->tv_usec)/1000.0;
+}
+
+
+
+double calculateIntegration(char *str,double up,double down,double step){
+
+  double t=0;
+  double firstValue=0;
+  double lastValue=0;
+  double total=0;
+  /* Store variable names and pointers. */
+  te_variable vars[] = {{"t", &t}};
+
+  int err;
+     /* Compile the expression with variables. */
+  te_expr *expr = te_compile(str, vars, 1, &err);
+
+  double rate = (up-down)/step;
+
+  double xi = rate; // xi = x1
+
+
+  if (expr) {
+         int i=1;
+         total=0;
+         for(i=1;i<step;++i){
+           t=xi;
+           total+= te_eval(expr);
+           xi+=rate;
+         }
+
+         t = down;
+         firstValue = te_eval(expr);
+         t=up;
+         lastValue = te_eval(expr);
+         te_free(expr);
+       } else {
+         printf("Parse error at %d\n", err);
+       }
+
+  double result =  (up-down)*(firstValue+ 2*total+lastValue )/(2.0*step);
+  return result;
+}
 
 int main(int argc,char *argv[]){
   int fdMainServerRead=0;
+  long double dResulution =0.0;
   pid_t pidChild;
-
+  struct timeval tMainStart;
+  struct timeval tMiniStart;
+  struct timeval tClientReq;
+  gettimeofday(&tMainStart,NULL);
   if(argc != 3 || argv[1][0]!='-' || argv[2][0]!='-'){
     fprintf(stderr,"Command-Line arguments failed.\n");
     fprintf(stderr,"USAGE: ./integralGen -resolution -max#OfClients\n");
@@ -83,6 +138,7 @@ int main(int argc,char *argv[]){
   }
 
   iMaxClient = atoi(&argv[2][1]);
+  dResulution = atof(&argv[1][1]);
 
   // TODO : ERROR CHECKS - ARGUMENT CONTROLS
   if(iMaxClient<=0){
@@ -113,15 +169,18 @@ int main(int argc,char *argv[]){
         exitHmenn(0);
       }
 
-      // child-server
       if(pidChild == 0){
-
+        gettimeofday(&tMiniStart,NULL);
+        gettimeofday(&tClientReq,NULL);
         signal(SIGINT,sigHandlerMini);
         pid_t pidChild;
         int fdMiniServerRead;
+
         int fdMiniServerWrite; // for send result to client
 
-
+        time_t connected = time(NULL);
+        long double up;
+        long double lower;
         pidChild=getpid();
 
         // client ile haberlesmek icin client pid ile fifo ac
@@ -167,11 +226,9 @@ int main(int argc,char *argv[]){
           exitHmenn(0);
         }
 
+
         write(fdMiniServerWrite,&pidChild,sizeof(pid_t));
-        int h=0;
-        for(h=0;h<3;++h)
-          write(fdMiniServerWrite,&result,sizeof(double));
-        close(fdMiniServerWrite);
+
 
         #ifdef DEBUG
         fprintf(stdout,"MiniServer read Fi=%s\n",t_client.strFiName);
@@ -180,11 +237,29 @@ int main(int argc,char *argv[]){
         fprintf(stdout,"MiniServer read cOperator = %c\n",t_client.cOperator);
         #endif
 
-        printf("MiniServer ended.\n");
 
         //TODO : ADD MY EXIT HERE
-        while(1){sleep(2);}
 
+        long double timedif;
+
+        timedif = getdifMil(&tMainStart,&tClientReq);
+        printf("Client connected in %Lf miliseconds\n", timedif);
+
+        lower = timedif;
+        up  = lower + dResulution;
+        printf("Resolution %Lf\n",dResulution);
+        printf("Lower %Lf\n",lower);
+        printf("Up %Lf\n",up);
+        int h=0;
+        while(1){
+            result = calculateIntegration("5*t",up,lower,3);
+            write(fdMiniServerWrite,&result,sizeof(double));
+            lower = up;
+            up = up + dResulution;
+            sleep(t_client.iTimeInterval);
+          }
+
+        close(fdMiniServerWrite);
         exitHmenn(0);
       }else{
         //sleep(6);

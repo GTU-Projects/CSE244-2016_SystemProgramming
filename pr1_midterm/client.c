@@ -176,10 +176,10 @@ int main(int argc,char* argv[]){
   double result;
 
 
-  read(fdMiniServerRead,&result,sizeof(double));
+  while(read(fdMiniServerRead,&result,sizeof(double)))
     printf("Result = %.4f\n",result);
 
-  sleep(2);
+
 
 
   close(fdMiniServerRead);
