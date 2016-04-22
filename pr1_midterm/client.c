@@ -14,7 +14,7 @@
 #define SERVER_FIFO_NAME "hmenn.ff"
 #define MAX_FILE_NAME 50
 
-
+//SIGQUIT, SIGFPE, SIGTERM
 typedef enum {
   FALSE=0,TRUE=1
 }bool;
@@ -54,7 +54,12 @@ int main(int argc,char* argv[]){
   pid_t pidClient;
   int fdFij;
 
-  signal(SIGINT,sigHandler); // initialize signal handler
+  // initialize signal handler
+  signal(SIGINT,sigHandler);
+  signal(SIGTSTP,sigHandler);
+  signal(SIGTERM,sigHandler);
+  signal(SIGQUIT,sigHandler);
+  signal(SIGHUP,sigHandler);
 
   // ################ Control line arguments ################## //
   if(argc != 5 ||argv[1][0] !='-' || argv[2][0] !='-' || argv[3][0] !='-'
@@ -66,7 +71,7 @@ int main(int argc,char* argv[]){
 
   pidClient = getpid();
   // TODO : CHANGE CLIENT LOG NAME
-  sprintf(strClientLog,"Logs/c-%ld.log",(long)3);
+  sprintf(strClientLog,"Logs/c-%ld.log",(long)pidClient);
   if(NULL == (fpClientLog = fopen(strClientLog,"w"))){
     fprintf(stderr,"FAILED TO CREATE CLIENT LOG FILE. Errno : %s\n",strerror(errno));
     exit(0);
@@ -180,26 +185,54 @@ int main(int argc,char* argv[]){
     printf("Result = %.4f\n",result);
 
 
-
-
   close(fdMiniServerRead);
   myExit(EXIT_SUCCESS);
 }
 
 void sigHandler(int signalNo){
-    //lo kapandıysa tekrardan acip icine yaz
+
   if(fpClientLog==NULL)
     fpClientLog=fopen(strClientLog,"a+");
   cpOperator=NULL;
 
   unlink(strFromMiniServerFifo);
   unlink(strToMiniServerFifo);
-  printf("Client[%ld] interrupted with CTRL+C. Server[%ld] closed.\n",
+  if(signalNo == SIGINT){
+    printf("Client[%ld] interrupted with CTRL+C. Server[%ld] closed.\n",
                                   (long)getpid(),(long)pidConnectedServer);
   if(pidConnectedServer!=-1)
     kill(pidConnectedServer,SIGINT);
   fprintf(fpClientLog,"Client[%ld] interrupted with CTRL+C. Server[%ld] closed.\n",
                                     (long)getpid(),(long)pidConnectedServer);
+ }else if(signalNo == SIGTSTP){
+   printf("Client[%ld] interrupted with CTRL+Z. Server[%ld] closed.\n",
+                                 (long)getpid(),(long)pidConnectedServer);
+ if(pidConnectedServer!=-1)
+   kill(pidConnectedServer,SIGTSTP);
+ fprintf(fpClientLog,"Client[%ld] interrupted with CTRL+Z. Server[%ld] closed.\n",
+                                   (long)getpid(),(long)pidConnectedServer);
+}else if(signalNo == SIGQUIT){
+  printf("Client[%ld] interrupted with (ctrl+\\)SIGQUIT. Server[%ld] closed.\n",
+                                (long)getpid(),(long)pidConnectedServer);
+if(pidConnectedServer!=-1)
+  kill(pidConnectedServer,SIGQUIT);
+fprintf(fpClientLog,"Client[%ld] interrupted with (ctrl+\\)SIGQUIT. Server[%ld] closed.\n",
+                                  (long)getpid(),(long)pidConnectedServer);
+}else if(signalNo == SIGHUP){
+  printf("Client[%ld] interrupted with SUGUP. Server[%ld] closed.\n",
+                                (long)getpid(),(long)pidConnectedServer);
+if(pidConnectedServer!=-1)
+  kill(pidConnectedServer,SIGHUP);
+fprintf(fpClientLog,"Client[%ld] interrupted with SUGUP. Server[%ld] closed.\n",
+                                  (long)getpid(),(long)pidConnectedServer);
+}else if(signalNo == SIGTERM){
+  printf("Client[%ld] interrupted with SIGTERM. Server[%ld] closed.\n",
+                                (long)getpid(),(long)pidConnectedServer);
+if(pidConnectedServer!=-1)
+  kill(pidConnectedServer,SIGTERM);
+fprintf(fpClientLog,"Client[%ld] interrupted with SIGTERM. Server[%ld] closed.\n",
+                                  (long)getpid(),(long)pidConnectedServer);
+}
   if(fpClientLog!=NULL)
     fclose(fpClientLog);
   fpClientLog=NULL;
@@ -222,19 +255,12 @@ char giveOperator(const char *cpOperator){
 
 
 void myExit(int exitStatus){
-
-  signal(SIGINT,sigHandler);
   cpOperator=NULL;
-
   if(fpClientLog!=NULL)
     fclose(fpClientLog);
   fpClientLog=NULL;
     printf("%ld",(long)pidConnectedServer);
   if(pidConnectedServer!=-1)
     kill(pidConnectedServer,SIGINT); // eger servere baglanmazsa
-    // -1e kill atarsak pc cokecek
-  /*unlink(strFromMiniServerFifo);
-  unlink(strToMiniServerFifo);*/
-
   exit(exitStatus);
 }

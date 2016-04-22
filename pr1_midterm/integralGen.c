@@ -13,6 +13,8 @@
 #include <limits.h>
 #include <time.h>
 #include "tinyexpr.h"
+// https://github.com/codeplea/tinyexpr
+
 
 #define MILLION 1000000L
 #define MAX_FILE_NAME 50
@@ -47,6 +49,7 @@ char strFromClientFifo[MAX_FILE_NAME];
 char strToClientFifo[MAX_FILE_NAME];
 pid_t pidConnectedClient=0;
 calculate_t t_client;
+te_expr *expr;
 
 void sigHandler(int signalNo);
 void sigHandlerMini(int signalNo);
@@ -74,7 +77,7 @@ double calculateIntegration(char *str,double up,double down,double step){
 
   int err;
      /* Compile the expression with variables. */
-  te_expr *expr = te_compile(str, vars, 1, &err);
+  expr = te_compile(str, vars, 1, &err);
 
   double rate = (up-down)/step;
 
@@ -95,8 +98,10 @@ double calculateIntegration(char *str,double up,double down,double step){
          t=up;
          lastValue = te_eval(expr);
          te_free(expr);
+         expr=NULL;
        } else {
-         printf("Parse error at %d\n", err);
+         fprintf(stderr,"Parse error. Server[%ld] closed!\n", (long)getpid());
+         exitHmenn(0);
        }
 
   double result =  (up-down)*(firstValue+ 2*total+lastValue )/(2.0*step);
@@ -118,6 +123,10 @@ int main(int argc,char *argv[]){
   }
 
   signal(SIGINT,sigHandler);
+  signal(SIGTSTP,sigHandler);
+  signal(SIGTERM,sigHandler);
+  signal(SIGQUIT,sigHandler);
+  signal(SIGHUP,sigHandler);
   signal(SIGCHLD,sigDeadHandler); // cocuk olunce yollanacak sinyali tutacak
   fpLog = fopen(LOG_FILE_NAME,"a");
   if(NULL == fpLog){
@@ -173,6 +182,10 @@ int main(int argc,char *argv[]){
         gettimeofday(&tMiniStart,NULL);
         gettimeofday(&tClientReq,NULL);
         signal(SIGINT,sigHandlerMini);
+        signal(SIGTSTP,sigHandlerMini);
+        signal(SIGTERM,sigHandlerMini);
+        signal(SIGQUIT,sigHandlerMini);
+        signal(SIGHUP,sigHandlerMini);
         pid_t pidChild;
         int fdMiniServerRead;
 
@@ -276,7 +289,6 @@ int main(int argc,char *argv[]){
 }
 
 void exitHmenn(int exitStatus){
-
   free(pPidClients);
   pPidClients=NULL;
   fclose(fpLog);
@@ -290,36 +302,72 @@ void sigHandler(int signalNo){
 
   for(i=0;i<iCurrentClientNumber;++i){
     printf("Killed %d.[%ld].\n",i,(long)pPidClients[i]);
-    kill(pPidClients[i],SIGINT);
+    kill(pPidClients[i],signalNo);
   }
 
   free(pPidClients);
   pPidClients=NULL;
 
+  if(expr != NULL)
+    te_free(expr);
+  expr=NULL;
+
   unlink(MAIN_SERVER_FIFO_NAME);
 
+  if(signalNo == SIGINT){
   printf("CTRL-C Signal Handled. Main Server[%ld] closed.\n", (long)getpid());
   fprintf(fpLog, "CTRL-C Signal Handled. Main Server[%ld] closed.\n", (long)getpid());
+  }else if(signalNo == SIGHUP){
+  printf("SIGUP Signal Handled. Main Server[%ld] closed.\n", (long)getpid());
+  fprintf(fpLog, "SIGUP Signal Handled. Main Server[%ld] closed.\n", (long)getpid());
+  }else if(signalNo == SIGTERM){
+  printf("SIGTERM Signal Handled. Main Server[%ld] closed.\n", (long)getpid());
+  fprintf(fpLog, "SIGTERM Signal Handled. Main Server[%ld] closed.\n", (long)getpid());
+  }else if(signalNo == SIGQUIT){
+  printf("SIGQUIT Signal Handled. Main Server[%ld] closed.\n", (long)getpid());
+  fprintf(fpLog, "SIGQUIT Signal Handled. Main Server[%ld] closed.\n", (long)getpid());
+  }else if(signalNo == SIGTSTP){
+  printf("SIGTSTP Signal Handled. Main Server[%ld] closed.\n", (long)getpid());
+  fprintf(fpLog, "SIGTSTP Signal Handled. Main Server[%ld] closed.\n", (long)getpid());
+}
   fclose(fpLog);
   exit(signalNo);
 }
 
 void sigHandlerMini(int signalNo)
 {
+
     free(pPidClients);
     pPidClients=NULL;
 	  unlink(strFromClientFifo);
     unlink(strToClientFifo);
-    kill(pidConnectedClient,SIGINT);
-    printf("CTRL-C Signal Handled. Mini Server[%ld][%ld] closed.\n",(long)getppid(),(long)getpid());
-    fprintf(fpLog, "CTRL-C Signal Handled. Mini Server[%ld][%ld] closed.\n",(long)getppid(),(long)getpid());
-		fclose(fpLog);
+    if(signalNo == SIGINT){
+      kill(pidConnectedClient,SIGINT);
+      printf("CTRL-C Signal Handled. Mini Server[%ld][%ld] closed.\n",(long)getppid(),(long)getpid());
+      fprintf(fpLog, "CTRL-C Signal Handled. Mini Server[%ld][%ld] closed.\n",(long)getppid(),(long)getpid());
+    }else if(signalNo == SIGTSTP){
+      kill(pidConnectedClient,SIGTSTP);
+      printf("CTRL-Z Signal Handled. Mini Server[%ld][%ld] closed.\n",(long)getppid(),(long)getpid());
+      fprintf(fpLog, "CTRL-Z Signal Handled. Mini Server[%ld][%ld] closed.\n",(long)getppid(),(long)getpid());
+    }else if(signalNo == SIGTERM){
+      kill(pidConnectedClient,SIGTERM);
+      printf("SIGTERM Signal Handled. Mini Server[%ld][%ld] closed.\n",(long)getppid(),(long)getpid());
+      fprintf(fpLog, "SIGTERM Signal Handled. Mini Server[%ld][%ld] closed.\n",(long)getppid(),(long)getpid());
+    }else if(signalNo == SIGQUIT){
+      kill(pidConnectedClient,SIGQUIT);
+      printf("SIGQUIT Signal Handled. Mini Server[%ld][%ld] closed.\n",(long)getppid(),(long)getpid());
+      fprintf(fpLog, "SIGQUIT Signal Handled. Mini Server[%ld][%ld] closed.\n",(long)getppid(),(long)getpid());
+    }else if(signalNo == SIGHUP){
+      kill(pidConnectedClient,SIGHUP);
+      printf("SIGHUP Signal Handled. Mini Server[%ld][%ld] closed.\n",(long)getppid(),(long)getpid());
+      fprintf(fpLog, "SIGHUP Signal Handled. Mini Server[%ld][%ld] closed.\n",(long)getppid(),(long)getpid());
+    }
+  		fclose(fpLog);
     exit(signalNo);
 }
 
 // sadece parente sinyal giderse tutulur
 void sigDeadHandler(int signalNo){
-  signal(SIGCHLD,sigDeadHandler); // sinyali resetle
   --iCurrentClientNumber;
   printf("ChildDead\n");
   pid_t child=wait(NULL);
