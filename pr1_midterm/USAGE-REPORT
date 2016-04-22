@@ -1,0 +1,49 @@
+HASAN MEN - 131044009
+Sistem Programlama Vize 1
+22.4.2016
+-------------------------------
+
+USAGE Server : ./integralGen -resolution -maxCLientNUmber
+USAGE Client : ./client -fi.txt -fj.txt -timeInterval -operator
+
+PROJE KLASORUNDEKI Logs/ klasorunu lutfen silmeyin. Child loglari orada toplanacak.
+
+MainServer Log ::  ./integralGen.log   -> ana directoryde
+
+----------------------------------
+
+MATEMATIKSEL ISLEMLER VE PARSE ICIN TINYEXPER KULLANILDI.
+TINYEXPER FREE BIR KAYNAKTIR.
+
+21.4.2016'da kullanmaya basladim.
+Reference : https://github.com/codeplea/tinyexpr
+
+---------------------------------
+
+LUTFEN OKUYUNUZ.
+
+1. Server tüm dosylari okur ve kaydeder. Clientlerin baglanmasi icin fifo acar.
+2. Client baslamak icin fifoyu arar eger varsa pid sisni yollayarak MINI-server
+    isteginde bulunur.
+3. MainServer maxClient sayisi asilmamissa mini bir server acar ve cliente pass eder.
+4. MainServer MAXCLIENT number asildi ise gelen clientlere SIGINT vererek GULE GULE der.
+5. MiniSevere baglanan cocuk bilgileri yollayarak belirli araliklarda integral
+    sonucu bekler ve sonuc geldikce log dosyasina basar.
+6. Integral clientin baglanma zamani ve timeIntervale gore hesaplanir ve guncellenir.
+7. Her time resolution kadar surece de cliente sonuc yollanir. 
+8.->>> RESOLUTIONA GORE INTEGRAL GONDERME YAPILMADI.
+9. TUM Dinamic kullanimlar global yapildi ki free ler tammamlansin.
+10. ALARMS ::15 saniye client servere bilgi gondermezse server kapanir.
+11.        ::10 client bilgi okuyamazsa kapanir ve servere kill SIGINT yollar.
+
+
+------------------------------------
+ SIGNALS
+ 
+0. YETERLI SERVER olmamasi durumunda SIGUSR1 kullanildi.
+1. Expressin hatasi varsa SIGUSR2 kullanildi.
+2. Hatali dosyalara erisimde SIGUSR2 kullanildi.
+3. Sonsuz sonuclarda SIGSEGV tutuldu.
+4. Clientin yer olmadan servere baglanamasinda SIGINT yollandı.
+5. SIGTERM,SIGQUIT,SIGTSTP,SIGUP,SIGALRM 
+

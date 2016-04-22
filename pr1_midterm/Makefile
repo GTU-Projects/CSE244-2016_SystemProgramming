@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-c -D_POSIX_C_SOURCE
+CFLAGS=-c  -D_POSIX_C_SOURCE
 
 ## -ansi for standart c bu signal.h is not in standart c, it's in posix
 
