@@ -21,22 +21,24 @@
 #define LOG_FILE_NAME "integralGen.log"
 #define MAIN_SERVER_FIFO_NAME "hmenn.ff"
 #define RW_FLAG O_RDWR
+#define ALARM_TIME 5
 
 typedef struct{
   int iTimeInterval;
+  int iFiSize;
+  int iFjSize;
   char cOperator;
-  char strFiName[MAX_FILE_NAME];
-  char strFjName[MAX_FILE_NAME];
 }calculate_t;
 
-typedef enum {
-  FALSE=0,TRUE=1
-}bool;
+typedef struct{
+   double dResult;
+   double dStartTime;
+   double dEndTime;
+}t_integralRes;
+
 
 
 /* PREPROCESSORS DEFINE */
-
-
 
 
 /* GLOBAL DEGISKENLER */
@@ -49,7 +51,13 @@ char strFromClientFifo[MAX_FILE_NAME];
 char strToClientFifo[MAX_FILE_NAME];
 pid_t pidConnectedClient=0;
 calculate_t t_client;
-te_expr *expr;
+te_expr *expr=NULL;
+
+char strFiName[MAX_FILE_NAME];
+char strFjName[MAX_FILE_NAME];
+
+
+
 
 void sigHandler(int signalNo);
 void sigHandlerMini(int signalNo);
@@ -78,11 +86,8 @@ double calculateIntegration(char *str,double up,double down,double step){
   int err;
      /* Compile the expression with variables. */
   expr = te_compile(str, vars, 1, &err);
-
   double rate = (up-down)/step;
-
   double xi = rate; // xi = x1
-
 
   if (expr) {
          int i=1;
@@ -110,7 +115,7 @@ double calculateIntegration(char *str,double up,double down,double step){
 
 int main(int argc,char *argv[]){
   int fdMainServerRead=0;
-  long double dResulution =0.0;
+  double dResulution =0.0;
   pid_t pidChild;
   struct timeval tMainStart;
   struct timeval tMiniStart;
@@ -169,7 +174,7 @@ int main(int argc,char *argv[]){
       }
       pPidClients[iCurrentClientNumber]=pidConnectedClient;
       ++iCurrentClientNumber;
-      printf("Client[%ld] sent request.\n",(long)pidConnectedClient);
+      printf("-Client[%ld] sent request.\n",(long)pidConnectedClient);
 
 
       if(-1 == (pidChild = fork())){
@@ -186,14 +191,15 @@ int main(int argc,char *argv[]){
         signal(SIGTERM,sigHandlerMini);
         signal(SIGQUIT,sigHandlerMini);
         signal(SIGHUP,sigHandlerMini);
+        signal(SIGALRM,sigHandlerMini);
         pid_t pidChild;
         int fdMiniServerRead;
 
         int fdMiniServerWrite; // for send result to client
 
         time_t connected = time(NULL);
-        long double up;
-        long double lower;
+        double upper;
+        double lower;
         pidChild=getpid();
 
         // client ile haberlesmek icin client pid ile fifo ac
@@ -218,9 +224,13 @@ int main(int argc,char *argv[]){
 
         // ######### READING INFORMATION FROM MINI SERVER FIFO ############# //
         calculate_t t_client;
+        alarm(15);
         read(fdMiniServerRead,&t_client,sizeof(calculate_t));
-        close(fdMiniServerRead);
+        read(fdMiniServerRead,strFiName,t_client.iFiSize);
+        read(fdMiniServerRead,strFjName,t_client.iFjSize);
 
+        close(fdMiniServerRead);
+        alarm(0);
 
         // ######### READING INFORMATION TO MINI SERVER FIFO ############# //
         double result=9.99;
@@ -244,8 +254,8 @@ int main(int argc,char *argv[]){
 
 
         #ifdef DEBUG
-        fprintf(stdout,"MiniServer read Fi=%s\n",t_client.strFiName);
-        fprintf(stdout,"MiniServer read Fj=%s\n",t_client.strFjName);
+        fprintf(stdout,"MiniServer read Fi=%s\n",strFiName);
+        fprintf(stdout,"MiniServer read Fj=%s\n",strFjName);
         fprintf(stdout,"MiniServer read iTimeInterval = %d\n",t_client.iTimeInterval);
         fprintf(stdout,"MiniServer read cOperator = %c\n",t_client.cOperator);
         #endif
@@ -259,16 +269,25 @@ int main(int argc,char *argv[]){
         printf("Client connected in %Lf miliseconds\n", timedif);
 
         lower = timedif;
-        up  = lower + dResulution;
-        printf("Resolution %Lf\n",dResulution);
-        printf("Lower %Lf\n",lower);
-        printf("Up %Lf\n",up);
+        upper  = lower + dResulution;
+        #ifdef DEBUG
+        printf("Resolution %f\n",dResulution);
+        printf("Lower %f\n",lower);
+        printf("Up %f\n",upper);
+        #endif
         int h=0;
+
+        t_integralRes pIntegoutput;
         while(1){
-            result = calculateIntegration("5*t",up,lower,3);
-            write(fdMiniServerWrite,&result,sizeof(double));
-            lower = up;
-            up = up + dResulution;
+            result = calculateIntegration("5*t",upper,lower,3);
+            pIntegoutput.dStartTime = lower;
+            pIntegoutput.dEndTime = upper;
+            pIntegoutput.dResult = result;
+
+            write(fdMiniServerWrite,&pIntegoutput,sizeof(t_integralRes));
+
+            lower = upper;
+            upper = upper + dResulution;
             sleep(t_client.iTimeInterval);
           }
 
@@ -291,6 +310,7 @@ int main(int argc,char *argv[]){
 void exitHmenn(int exitStatus){
   free(pPidClients);
   pPidClients=NULL;
+
   fclose(fpLog);
   fpLog=NULL;
   exit(exitStatus);
@@ -307,6 +327,7 @@ void sigHandler(int signalNo){
 
   free(pPidClients);
   pPidClients=NULL;
+
 
   if(expr != NULL)
     te_free(expr);
@@ -339,6 +360,8 @@ void sigHandlerMini(int signalNo)
 
     free(pPidClients);
     pPidClients=NULL;
+
+
 	  unlink(strFromClientFifo);
     unlink(strToClientFifo);
     if(signalNo == SIGINT){
@@ -361,6 +384,10 @@ void sigHandlerMini(int signalNo)
       kill(pidConnectedClient,SIGHUP);
       printf("SIGHUP Signal Handled. Mini Server[%ld][%ld] closed.\n",(long)getppid(),(long)getpid());
       fprintf(fpLog, "SIGHUP Signal Handled. Mini Server[%ld][%ld] closed.\n",(long)getppid(),(long)getpid());
+    }else if(signalNo == SIGALRM){
+      kill(pidConnectedClient,SIGALRM);
+      printf("SIGALRM[%d sec.] Signal Handled. Mini Server[%ld][%ld] closed.\n",ALARM_TIME,(long)getppid(),(long)getpid());
+      fprintf(fpLog, "SIGALRM[%d sec.] Signal Handled. Mini Server[%ld][%ld] closed.\n",ALARM_TIME,(long)getppid(),(long)getpid());
     }
   		fclose(fpLog);
     exit(signalNo);
@@ -369,8 +396,6 @@ void sigHandlerMini(int signalNo)
 // sadece parente sinyal giderse tutulur
 void sigDeadHandler(int signalNo){
   --iCurrentClientNumber;
-  printf("ChildDead\n");
   pid_t child=wait(NULL);
-  printf("ID  : %ld and child %ld\n",(long)getpid(),(long)child);
   //exitHmenn(signalNo);
 }

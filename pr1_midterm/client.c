@@ -9,23 +9,29 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <time.h>
 #include <math.h>
 
 #define SERVER_FIFO_NAME "hmenn.ff"
-#define MAX_FILE_NAME 50
+#define MAX_FILE_NAME 20
+#define ALARM_TIME 10
 
-//SIGQUIT, SIGFPE, SIGTERM
-typedef enum {
-  FALSE=0,TRUE=1
-}bool;
 
 typedef struct{
   int iTimeInterval;
+  int iFiSize;
+  int iFjSize;
   char cOperator;
-  char strFiName[MAX_FILE_NAME];
-  char strFjName[MAX_FILE_NAME];
 }calculate_t;
 
+typedef struct{
+    double dResult;
+    double dStartTime;
+    double dEndTime;
+}t_integralRes;
+
+char strFiName[MAX_FILE_NAME];
+char strFjName[MAX_FILE_NAME];
 char *cpOperator=NULL;
 char cOperator;
 
@@ -44,8 +50,15 @@ char giveOperator(const char * cpOperator);
 
 void myExit(int exitStatus);
 
+long double getdifMil(struct timeval *start,struct timeval *end){
+  return 1000*(end->tv_sec - start->tv_sec) +(end->tv_usec - start->tv_usec)/1000.0;
+}
+
 int main(int argc,char* argv[]){
 
+  struct timeval tClientStart;
+  struct timeval tClientConnect;
+  struct timeval tClientRead;
   int iTimeInterval=0;
   int fdMainServerRead;
   int fdMainServerWrite;
@@ -54,12 +67,14 @@ int main(int argc,char* argv[]){
   pid_t pidClient;
   int fdFij;
 
+  gettimeofday(&tClientStart,NULL);
   // initialize signal handler
   signal(SIGINT,sigHandler);
   signal(SIGTSTP,sigHandler);
   signal(SIGTERM,sigHandler);
   signal(SIGQUIT,sigHandler);
   signal(SIGHUP,sigHandler);
+  signal(SIGALRM,sigHandler);
 
   // ################ Control line arguments ################## //
   if(argc != 5 ||argv[1][0] !='-' || argv[2][0] !='-' || argv[3][0] !='-'
@@ -103,29 +118,39 @@ int main(int argc,char* argv[]){
     myExit(0);
   }
 
+   /* Set inormations to send */
     t_client.iTimeInterval = iTimeInterval;
     t_client.cOperator= cOperator;
 
-    strcpy(t_client.strFiName , &argv[1][1]);
-    strcpy(t_client.strFjName , &argv[2][1]);
+    t_client.iFiSize = strlen(&argv[1][1])+1;
+    strcpy(strFiName,&argv[1][1]);
+
+    t_client.iFjSize = strlen(&argv[2][1])+1;
+    strcpy(strFjName , &argv[2][1]);
 
   // ********* END OF OPERATOR CONTROL ******** * //
 
   #ifdef DEBUG
     printf("# CLIENT COMMAND-LINE DEBUG\n");
     printf("Client[%ld] started.\n",(long)pidClient);
-    printf("--Fi file : %s\n",t_client.strFiName);
-    printf("--Fj file : %s\n",t_client.strFjName);
+    printf("--Fi %d file : %s\n",t_client.iFiSize,strFiName);
+    printf("--Fj %d file : %s\n",t_client.iFjSize,  strFjName);
     printf("--Tİme Interval : %d\n",t_client.iTimeInterval);
     printf("--Operator : %c\n",t_client.cOperator);
   #endif
 
-
+  gettimeofday(&tClientConnect,NULL);
+  long double ldConnectTime;
+  ldConnectTime = getdifMil(&tClientStart,&tClientConnect);
   if(-1 == (fdMainServerWrite = open(SERVER_FIFO_NAME,O_WRONLY))){
-    fprintf(stderr,"Client[%ld] failed to connect MainServer.\n",(long)pidClient);
-    fprintf(fpClientLog,"Client[%ld] failed to connect MainServer.\n",(long)pidClient);
+    fprintf(stderr,"Client[%ld] failed to connect MainServer at %Lf ms.\n",(long)pidClient,ldConnectTime);
+    fprintf(fpClientLog,"Client[%ld] failed to connect MainServer at %Lf ms.\n",(long)pidClient,ldConnectTime);
     myExit(0);
   }
+
+
+  fprintf(stderr,"Client[%ld] connecced  MainServer at %Lf ms.\n",(long)pidClient,ldConnectTime);
+  fprintf(fpClientLog,"Client[%ld] connected connect MainServer at %Lf ms..\n",(long)pidClient,ldConnectTime);
 
 
   int iWriteCheck=0;
@@ -164,8 +189,9 @@ int main(int argc,char* argv[]){
 
   // ################ SERVERE BILGI GONDERME CEVAP ALMA ################ //
 
-
   write(fdMiniServerWrite,&t_client,sizeof(calculate_t));
+  write(fdMiniServerWrite,strFiName,t_client.iFiSize);
+  write(fdMiniServerWrite,strFjName,t_client.iFjSize);
   close(fdMiniServerWrite);
 
 
@@ -177,13 +203,24 @@ int main(int argc,char* argv[]){
     myExit(0);
   }
 
+  alarm(ALARM_TIME);
   read(fdMiniServerRead,&pidConnectedServer,sizeof(pid_t));
-  double result;
+
+  t_integralRes results;
 
 
-  while(read(fdMiniServerRead,&result,sizeof(double)))
-    printf("Result = %.4f\n",result);
-
+  long double ldClientRead;
+  int iStep=0;
+  while(read(fdMiniServerRead,&results,sizeof(t_integralRes))){
+    gettimeofday(&tClientRead,NULL);
+    ldClientRead = getdifMil(&tClientConnect,&tClientRead);
+    printf("%d.ms[%Lf] Lower(ms) : %f  Up(ms) : %f  -> Result = %f\n",iStep,ldClientRead,
+            results.dStartTime,results.dEndTime,results.dResult);
+   fprintf(fpClientLog,"%d.ms[%Lf] Lower(ms) : %f  Up(ms) : %f  -> Result = %f\n",
+        iStep,ldClientRead,results.dStartTime,results.dEndTime,results.dResult);
+   ++iStep;
+   alarm(ALARM_TIME);
+  }
 
   close(fdMiniServerRead);
   myExit(EXIT_SUCCESS);
@@ -232,6 +269,13 @@ if(pidConnectedServer!=-1)
   kill(pidConnectedServer,SIGTERM);
 fprintf(fpClientLog,"Client[%ld] interrupted with SIGTERM. Server[%ld] closed.\n",
                                   (long)getpid(),(long)pidConnectedServer);
+}else if(signalNo == SIGALRM){
+  printf("Client[%ld] interrupted with %d seconds ALARM. Server[%ld] closed.\n",
+                                (long)getpid(),ALARM_TIME,(long)pidConnectedServer);
+if(pidConnectedServer!=-1)
+  kill(pidConnectedServer,SIGALRM);
+fprintf(fpClientLog,"Client[%ld] interrupted with %d seconds ALARM. Server[%ld] closed.\n",
+                                  (long)getpid(),ALARM_TIME,(long)pidConnectedServer);
 }
   if(fpClientLog!=NULL)
     fclose(fpClientLog);
@@ -259,7 +303,6 @@ void myExit(int exitStatus){
   if(fpClientLog!=NULL)
     fclose(fpClientLog);
   fpClientLog=NULL;
-    printf("%ld",(long)pidConnectedServer);
   if(pidConnectedServer!=-1)
     kill(pidConnectedServer,SIGINT); // eger servere baglanmazsa
   exit(exitStatus);
