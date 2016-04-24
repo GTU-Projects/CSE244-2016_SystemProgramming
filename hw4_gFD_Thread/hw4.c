@@ -13,12 +13,18 @@
 
 /* global variables */
 pid_t *pPid_childs=NULL;
-t_fildes *pFD_pipe=NULL;
 FILE *pFile_log=NULL;
 DIR *pDir_current=NULL;
 struct dirent * pDirent_current=NULL;
 
 pthread_t * pTh_thread=NULL;
+t_search *allSearch=NULL;
+
+char **strDirectories=NULL;
+char **strFiles=NULL;
+
+int iFile_num=0;
+int iDir_num=0;
 
 
 
@@ -35,25 +41,16 @@ int main(int argc,char *argv[]){
 	signal(SIGINT,sigint_handler);
 
 	// open log file and check error
-	pFile_log = fopen(LOG_FILE_NAME,"w");
-	if(NULL == pFile_log){
-		fprintf(stderr, "%s\n",FOPEN_LOG_ERROR);
-		exit(EXIT_FAILURE);
-	}
-
+	
 	struct sigaction action;
-
 
 
 	int iTotal_wordnum = search_dir(argv[1],argv[2]);
 
-
-
-
-	fprintf(pFile_log,"------------------------------------------\n");
-	fprintf(pFile_log,"Found %d times %s is %s dir.\n",iTotal_wordnum,argv[2],argv[1]);
 	printf("------------------------------------------\n");
 	printf("Found %d times %s is %s dir.\n",iTotal_wordnum,argv[2],argv[1]);
+
+
 
 	return 0;
 }
@@ -80,36 +77,37 @@ void sigint_handler(int signum){
 		pPid_childs=NULL;
 	}
 
-	// free thread pipe array
-	if(NULL != pFD_pipe){
-		free(pFD_pipe);
-		pFD_pipe=NULL;
-	}
+
 
 
 	exit(EXIT_FAILURE);
 }
 
 
-int search_dir(const char *dir_path,const char *word){
+int search_dir( char *dir_path, char *word){
 
 	int fildes_man;
 	int total=0;
 
-	search_dir_recursive(dir_path,word,&total);
+	pFile_log = fopen(LOG_FILE_NAME,"w");
+
+
+	total = search_dir_recursive(dir_path,word);
+
+	fprintf(pFile_log,"------------------------------------------\n");
+	fprintf(pFile_log,"Found %d times %s is %s dir.\n",total,dir_path,word);
+	freeAll();
 	return total;
 }
 
 
 
 
-int search_dir_recursive(const char *dir_path,const char *word,int *total){
+int search_dir_recursive( char *dir_path, char *word){
 
 	pid_t pid_child=-1;
 	pid_t pid_dead_child=-1;
 	int iTotal_wordnum=0;
-	int iFile_num=0;
-	int iDir_num=0;
 	int fdStatus = -1; // current dirrectory and file status
 	int drStatus = -1;
 	char strPath[PATH_MAX];
@@ -135,12 +133,10 @@ int search_dir_recursive(const char *dir_path,const char *word,int *total){
 			iDir_num,iFile_num,dir_path);
 #endif
 
-
-	pFD_pipe = calloc(sizeof(t_fildes),iFile_num);
 	pPid_childs = calloc(sizeof(pid_t),iDir_num);
-	pTh_thread = calloc(sizeof(pthread_t),iFile_num);
+	allSearch = (t_search *)calloc(sizeof(t_search),iFile_num);
 
-
+	open_pipe_connection(allSearch,iFile_num);
 	rewinddir(pDir_current);
 
 	while(NULL != (pDirent_current = readdir(pDir_current))){
@@ -148,18 +144,15 @@ int search_dir_recursive(const char *dir_path,const char *word,int *total){
 			sprintf(strPath,"%s/%s",dir_path,pDirent_current->d_name);
 
 			if(is_regfile(strPath)){
-				t_search tS_send;;
 				++fdStatus;
-
-				tS_send.filename = strPath;
-				tS_send.word = word;
-				tS_send.status = fdStatus;
+				allSearch[fdStatus].filename = strFiles[fdStatus];
+				allSearch[fdStatus].word = word;
+				allSearch[fdStatus].status = fdStatus;
+				printf("File: %s \n",allSearch[fdStatus].filename);
 				
-				open_pipe_connection(pFD_pipe,fdStatus);
+				pthread_create(&(allSearch[fdStatus].tid),NULL,search_with_thread,&allSearch[fdStatus]);
 
-				pthread_create(&pTh_thread[fdStatus],NULL,search_with_thread,(void *)&tS_send);
 				// TODO : THREAD CONTINUE
-
 				
 			}else if(is_directory(strPath)){
 				continue;
@@ -179,35 +172,44 @@ int search_dir_recursive(const char *dir_path,const char *word,int *total){
 
 			}
 		}
+		//break;
+	}
+
+
+	// child here
+	if(pid_child == 0){
+
+
+	}else // parent here
+	{
+		// first wait for threads and read their outputs to global log file
+		int i=0;
+		for(i=0;i<=fdStatus;++i){
+			pthread_join(allSearch[i].tid,NULL);
+			close(allSearch[i].fd[1]);
+			fprintf(pFile_log,"\nFILE : %s    // WORD : %s \n",allSearch[i].filename,allSearch[i].word);
+	        iTotal_wordnum += copyfile(allSearch[i].fd[0],pFile_log);
+	        close(allSearch[i].fd[0]);
+			printf("Thread %d dead.\n",i);
+		}
 
 	}
 
-	int i=0;
-	for(i=0;i<fdStatus;++i)
-		pthread_join(pTh_thread[i],NULL);
 
-	exit_hmenn(0);
+
+
+
+
+
+
+
+
+	return iTotal_wordnum;
+
 }
 
 
-int open_pipe_connection(t_fildes * arr, int index){
-
-	if(NULL == arr || index <0)
-		return 0;
-
-	if(-1 == (pipe(arr[index].fd))){
-		fprintf(stderr,"Failed to openinin pipe\n");
-		exit_hmenn(1);
-	}
-
-	#ifdef DEBUG
-		fprintf(stdout,"Pipe opened. Index : %d\n",index);
-	#endif
-	return 1;
-}
-
-
-int find_numof_elems_in_dir(const char *dir_path,int *filenum, int *dirnum){
+int find_numof_elems_in_dir( char *dir_path,int *filenum, int *dirnum){
 
 	char strPath[PATH_MAX];
 	int iFile_num=0;
@@ -231,6 +233,29 @@ int find_numof_elems_in_dir(const char *dir_path,int *filenum, int *dirnum){
 			}
 		}
 	}
+	
+	rewinddir(pDir_current);
+
+	strDirectories = (char **)calloc(sizeof(char*),iDir_num);
+	strFiles = (char **)calloc(sizeof(char *),iFile_num);
+
+	iFile_num=0;
+	iDir_num=0;
+
+	while(NULL != (pDirent_current = readdir(pDir_current))){
+			sprintf(strPath,"%s/%s",dir_path,pDirent_current->d_name);
+			if(strcmp(pDirent_current->d_name,".")!=0 && strcmp(pDirent_current->d_name,"..")!=0){
+				if(is_directory(strPath)){
+					strDirectories[iDir_num] = strdup(strPath);
+					++iDir_num;
+				}else // if not directory 
+				if(is_regfile(strPath)){
+					strFiles[iFile_num]=strdup(strPath);
+					++iFile_num;
+				}
+			}
+		}
+
 
 	pDirent_current=NULL;
 	*filenum = iFile_num;
@@ -246,6 +271,7 @@ int find_numof_elems_in_dir(const char *dir_path,int *filenum, int *dirnum){
 
 // special exit method
 void exit_hmenn(int status){
+	freeAll();
 	exit(status);
 }
 
@@ -273,23 +299,24 @@ int is_directory(const char *dirName){
 
 void * search_with_thread(void *args){
 
-
+	
 	if(NULL == args){
+		printf("dasd\n");
 		return NULL;
 	}
 	int total =0;
 
 
-	t_search *tS_send = (t_search *)args;
-
-	total = findOccurencesInFile(pFD_pipe[tS_send->status].fd,tS_send->filename,tS_send->word);
-	tS_send->total = total;
+	t_search *search= (t_search *)args;
+	printf("Thread File : %ld\n",search->tid);
+	total = findOccurencesInFile(search->fd[1],search->filename,search->word);
+	search->total = total;
+	printf("Thered found %d\n",total);
 	return NULL;
 }
 
 int findOccurencesInFile(int fd,const char* fileName,const char *word){
 
-  char wordCoordinats[30];/* dosyaya koordinatlari basmak icin string yuvasi */
   int fdFileToRead; /* okunacak dosya fildesi */
   char buf; /* tek karakter okumalik buffer */
   int i=0;
@@ -297,6 +324,7 @@ int findOccurencesInFile(int fd,const char* fileName,const char *word){
   int row=0;
   int found=0;
   int logCreated = 0;
+  t_coordinat coord;
 
   if((fdFileToRead = open(fileName,O_RDONLY)) == -1){
     fprintf(stderr," Failed open \"%s\" : %s ",fileName,strerror(errno));
@@ -309,6 +337,7 @@ int findOccurencesInFile(int fd,const char* fileName,const char *word){
 /* Karakter karakter ilerleyerek kelimeyi bul. Kelimenin tum karekterleri arka
 arkaya bulununca imleci geriye cek ve devam et. Tum eslesen kelimeleri bul
 */
+
   while(read(fdFileToRead,&buf,sizeof(char))){
     ++column; /* hangi sutunda yer aliriz*/
     if(buf == '\n'){
@@ -319,20 +348,15 @@ arkaya bulununca imleci geriye cek ve devam et. Tum eslesen kelimeleri bul
       ++i;
       if(i == strlen(word)){ /* kelime eslesti dosyaya yaz imleci geri al*/
         ++found;
-         /*  EGER KELIME VARSA LOG FILE AC VE YAZ YOKSA ELLEME */
-        if(logCreated == 1){
-          /* log dosyasinin basina bilgilendirme olarak path basildi */
-          write(fd,fileName,strlen(fileName));
-          write(fd,"\n",1);
-          logCreated =1;
-        }
         lseek(fdFileToRead,-i+1,SEEK_CUR);
         column =column - i+1;
+        coord.found=found;
+        coord.row=row;
+        coord.column=column;
         #ifdef DEBUG_FILE_READ
-        printf("%d. %d %d\n",found,row,column);
+        printf("%d. %d %d\n",coord.found,coord.row,coord.column);
         #endif
-        sprintf(wordCoordinats,"%d%c%d%c%d%c",found,'.',row,' ',column,'\n');
-        write(fd,wordCoordinats,strlen(wordCoordinats));
+        write(fd,&coord,sizeof(coord));
         i=0;
       }
     }else{
@@ -343,3 +367,91 @@ arkaya bulununca imleci geriye cek ve devam et. Tum eslesen kelimeleri bul
   close(fdFileToRead);
   return found;
 }
+void open_pipe_connection(t_search * arr, int size){
+
+	int i=0;
+
+	for(i=0;i<size;++i){
+		if(-1 == pipe(arr[i].fd)){
+			perror("Pipe");
+			exit_hmenn(0);
+
+		}
+		#ifdef DEBUG
+			fprintf(stdout,"Pipe %d opened.\n",i);
+		#endif
+	}
+
+}
+
+
+void freeAll(){
+
+
+	if(NULL != pPid_childs){
+		free(pPid_childs);
+		pPid_childs=NULL;
+	}
+
+	if(NULL != pFile_log){
+		fclose(pFile_log);
+		pFile_log=NULL;
+	}
+
+
+	if(NULL != pDir_current){
+		closedir(pDir_current);
+		pDir_current=NULL;
+	}
+
+	pDirent_current=NULL;
+
+	if(NULL != pTh_thread){
+		free(pTh_thread);
+		pTh_thread=NULL;
+	}
+
+	if(NULL != allSearch){
+		free(allSearch);
+		allSearch=NULL;
+	}
+
+	int i=0;
+	if(NULL != strDirectories){
+		for(i=0;i<iDir_num;++i){
+			if(strDirectories[i]!=NULL){
+				free(strDirectories[i]);
+				strDirectories[i]=NULL;
+			}
+		}
+		free(strDirectories);
+		strDirectories=NULL;
+	}
+
+	if(NULL != strFiles){
+		for(i=0;i<iFile_num;++i){
+			if(strFiles[i]!=NULL){
+				free(strFiles[i]);
+				strFiles[i]=NULL;
+			}
+		}
+		free(strFiles);
+		strFiles=NULL;
+	}
+
+
+}
+
+
+
+int copyfile(int fromfd, FILE* out) {
+   	t_coordinat coord;
+   	int totalnum=0;
+
+   	while (read(fromfd,&coord,sizeof(coord)) > 0){
+   		++totalnum;
+      fprintf(out, "%d.  %d  %d\n",coord.found,coord.row,coord.column);
+   }
+   return totalnum;
+}
+
