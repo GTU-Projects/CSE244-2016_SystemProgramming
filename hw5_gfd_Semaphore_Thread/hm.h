@@ -17,23 +17,28 @@
 
 typedef struct{
 	pthread_t th;
-	char *filePath;
-	char *word;
-}hmthread_t;
+	pid_t tid;
+	const char *strFilePath; // hangi dosyadan okuyacak
+	const char *word; // ne okuyacak
+}hmThread_t;
 
 
 
+void freeAll();
 
 
 int findOccurance(const char *dirname,const char *word);
 
 int findRec(const char *dirPath,const char *word,int fd);
 
-void threadFindOcc(void *arg);
+void *threadFindOcc(void *arg);
 
-void threadRemovePipe(void *arg);
+void *threadRemovePipe(void *arg);
 
+void *threadRemoveFifo(void *arg);
 
-DIR* findContentOfDir(const char *dirPath,int *pFileNum, int *pDirNum);
+int findContentOfDir(const char *dirPath);
+
+int findOccurenceInRegular(int fd,const char* fileName,const char *word);
 
 #endif
