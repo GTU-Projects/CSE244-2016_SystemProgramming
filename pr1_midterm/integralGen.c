@@ -320,6 +320,7 @@ int main(int argc, char *argv[]) {
             }
             /* collect connected clients */
             pPidClients[iCurrentClientNumber] = pidConnectedClient;
+            printf("herehrerhere");
             ++iCurrentClientNumber;
 
             gettimeofday(&tClientReq,NULL);
@@ -592,6 +593,7 @@ void sigHandlerMini(int signalNo) {
         printf("Calculate Expressin failed.SIGSEGV Signal Handled. Mini Server[%ld][%ld] closed.\n", (long) getppid(), (long) getpid());
         fprintf(fpLog, "Calculate Expressin failed.SIGSEGV Signal Handled. Mini Server[%ld][%ld] closed.\n", (long) getppid(), (long) getpid());
     }
+
     fclose(fpLog);
     fpLog=NULL;
     exitHmenn(signalNo);
@@ -599,6 +601,7 @@ void sigHandlerMini(int signalNo) {
 
 /* when child dead will send SIGCHLD to paranet*/
 void sigDeadHandler(int signalNo) {
+    //printf("Hererere\n");
     --iCurrentClientNumber;
     pid_t child = wait(NULL);
     //exitHmenn(signalNo);

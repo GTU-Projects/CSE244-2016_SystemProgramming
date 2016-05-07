@@ -1,0 +1,17 @@
+HASAN MEN 131044009 - System HW4
+
+USAGE : ./grepFromDirT Dirname word
+
+
+---------------------
+
+    ODEVDE HICBIR SINYAL TUTULMADI (1 GUNDE COK AZ BIR SURE)
+    
+YAPILMAYANLAR : sinyal yakalama
+
+Yapılanlar :
+    
+1. Main process directorler için fifo açıp recursive olarak bilgi toplar.
+2. Directory process ile file lar arasinda thread+pipe ile bilgi akışı sağlandı.
+3. Tüm kayıtlar log dosyasina basiliyor. Terminaldeki toplam sayi eksik ise lütfen log dosyasina bakin.
+4. Phreadler ölüdükten sonra direk main procese katılırlar.

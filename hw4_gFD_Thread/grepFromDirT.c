@@ -9,7 +9,8 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include "hw4.h"
+#include "grepFromDirT.h"
+
 
 /* global degiskenler */
 t_child *pTChilds=NULL;  // fork ile olusturulalar
@@ -24,6 +25,9 @@ char **strFiles=NULL; // tum dosya sayilari threadler icin store edildi
 
 int iFile_num=0; // bir klasordeki dosya sayisi
 int iDir_num=0; // bir klasordeki ic klasor sayisi
+
+
+int fd_total;
 
 // dizi icindeki id lere gore pipe olusturur
 int openFifoConnection(t_child *arr,int size,int drStatus){
@@ -51,13 +55,12 @@ int openFifoConnection(t_child *arr,int size,int drStatus){
 
 
 
-
 int main(int argc,char *argv[]){
 
 	// arguman kontrol
 	if(argc!=3){
 		fprintf(stderr,"Main arguments error.\n");
-		fprintf(stderr,"USAGE : ./gfdT dirname word");
+		fprintf(stderr,"USAGE : ./grepFromDirT dirname word");
 		exit(EXIT_FAILURE);
 	}
 
@@ -66,7 +69,6 @@ int main(int argc,char *argv[]){
 
 	printf("------------------------------------------\n");
 	printf("Found %d times %s is %s dir.\n",iTotal_wordnum,argv[2],argv[1]);
-
 
 
 	return 0;
@@ -78,14 +80,10 @@ int search_dir( char *dir_path, char *word){
 	int fildes_man;
 	int total=0;
 	int fd;
-
-	//pFile_log = fopen(LOG_FILE_NAME,"w");
-
 	
-	fd = open("hmenn.log",(O_WRONLY | O_CREAT),FD_MODE);
+	fd = open("gfd.log",(O_WRONLY | O_CREAT ),FD_MODE);
 	total = search_dir_recursive(dir_path,word,fd);
 	close(fd);
-	
 
 	freeAll();
 	return total;
@@ -204,7 +202,7 @@ int search_dir_recursive( char *dir_path, char *word,int fd){
 	        write(fd,&str,strlen(str)*sizeof(char));
 	        copyfile3(allSearch[i].fd[0],fd);
 	        close(allSearch[i].fd[0]);	        
-			printf("Thread %d dead.\n",i);
+			//printf("Thread %d dead.\n",i);
 		}
 
 
@@ -212,22 +210,22 @@ int search_dir_recursive( char *dir_path, char *word,int fd){
 			char strFifoName[MAX_FILE_NAME];
 			int id = getID(pTChilds,iDir_num,pid_dead);
 			
-			printf("Child[%ld - %d] dead.",(long)pid_dead,id);
-			printf("%d",pTChilds[id].fd[0]);
+			#ifdef DEBUG
+			printf("Child[%ld - %d] dead.\n",(long)pid_dead,id);
+			#endif
+			
 			copyfile3(pTChilds[id].fd[0],fd);
 			close(pTChilds[id].fd[0]);
 		}
-
 	}
 
-
 	freeAll();
-
 	return iTotal_wordnum;
-
 }
 
 
+// bu fonksiyon klasor icindeki ic dosya ve klasor sayisini bulur
+// herbirinin adresini dinamic olarak kaydeder
 int find_numof_elems_in_dir( char *dir_path,int *filenum, int *dirnum){
 
 	char strPath[PATH_MAX];
@@ -283,18 +281,13 @@ int find_numof_elems_in_dir( char *dir_path,int *filenum, int *dirnum){
 }
 
 
-
-
-
-
-
-// special exit method
+// herseyi silip cikan exit
 void exit_hmenn(int status){
 	freeAll();
 	exit(status);
 }
 
-
+// regular dosyami kontrol et
 int is_regfile(const char * fileName){
   struct stat statbuf;
 
@@ -305,6 +298,7 @@ int is_regfile(const char * fileName){
   }
 }
 
+// klasormu kontrol et
 int is_directory(const char *dirName){
   struct stat statbuf;
       if(stat(dirName   ,& statbuf) == -1){
@@ -315,54 +309,58 @@ int is_directory(const char *dirName){
   }
 }
 
-
+// bu fonksiyonu tread calistiracak
+// helper olarak findOccurencesInFiles fonksiyonunu cagiir
+// parametre olarak gelen fd ye bulduklarini yazar
 void * search_with_thread(void *args){
 
 	
 	if(NULL == args){
-		printf("dasd\n");
+		perror("THREAD ARGUMENT FAILED");
 		return NULL;
 	}
 	int total =0;
 
-
-	t_search *search= (t_search *)args;
-	printf("Thread File : %ld\n",search->tid);
+	t_search *search= (t_search *)args; //casting
+	
 	total = findOccurencesInFile(search->fd[1],search->filename,search->word);
 	search->total = total;
-	printf("Thered found %d\n",total);
+	printf("Thread[%ld] found %d iteration.\n",search->tid,total);
 	return NULL;
 }
 
+
+// hw3 teki fonksiyonum
+// dosya icinde kelimeni gectigi koordinatlari fd ye basar
 int findOccurencesInFile(int fd,const char* fileName,const char *word){
 
 	char str[30];
-  int fdFileToRead; /* okunacak dosya fildesi */
-  char buf; /* tek karakter okumalik buffer */
-  int i=0;
-  int column=-1;
-  int row=0;
-  int found=0;
-  int logCreated = 0;
-  t_coordinat coord;
+	int fdFileToRead; /* okunacak dosya fildesi */
+	char buf; /* tek karakter okumalik buffer */
+	int i=0;
+	int column=-1;
+	int row=0;
+	int found=0;
+	int logCreated = 0;
+	t_coordinat coord;
 
-  if((fdFileToRead = open(fileName,O_RDONLY)) == -1){
-    fprintf(stderr," Failed open \"%s\" : %s ",fileName,strerror(errno));
-    return -1;
-  }
+	if((fdFileToRead = open(fileName,O_RDONLY)) == -1){
+	fprintf(stderr," Failed open \"%s\" : %s ",fileName,strerror(errno));
+	return -1;
+	}
 
-  #ifdef DEBUG_FILE_READ
-  printf("[%ld]' thread searches in :%s\n",(long)getpid(),fileName);
-  #endif
-/* Karakter karakter ilerleyerek kelimeyi bul. Kelimenin tum karekterleri arka
-arkaya bulununca imleci geriye cek ve devam et. Tum eslesen kelimeleri bul
-*/
+	#ifdef DEBUG_FILE_READ
+	printf("[%ld]' thread searches in :%s\n",(long)getpid(),fileName);
+	#endif
+	/* Karakter karakter ilerleyerek kelimeyi bul. Kelimenin tum karekterleri arka
+	arkaya bulununca imleci geriye cek ve devam et. Tum eslesen kelimeleri bul
+	*/
 
-  while(read(fdFileToRead,&buf,sizeof(char))){
-    ++column; /* hangi sutunda yer aliriz*/
-    if(buf == '\n'){
-      i=0;
-      column=-1;
+	while(read(fdFileToRead,&buf,sizeof(char))){
+	++column; /* hangi sutunda yer aliriz*/
+	if(buf == '\n'){
+	i=0;
+	column=-1;
       ++row;
     }else if(buf == word[i]){
       ++i;
@@ -388,6 +386,8 @@ arkaya bulununca imleci geriye cek ve devam et. Tum eslesen kelimeleri bul
   close(fdFileToRead);
   return found;
 }
+
+// pipe baglantilarini acar
 void open_pipe_connection(t_search * arr, int size){
 
 	int i=0;
@@ -405,7 +405,8 @@ void open_pipe_connection(t_search * arr, int size){
 
 }
 
-
+// ozel free fonksiyonu
+// alinan yerleri geri verir
 void freeAll(){
 
 
@@ -415,14 +416,10 @@ void freeAll(){
 	}
 
 	
-
-
 	if(NULL != pDir_current){
 		closedir(pDir_current);
 		pDir_current=NULL;
 	}
-
-	//pDirent_current=NULL;
 
 	if(NULL != pTh_thread){
 		free(pTh_thread);
@@ -462,19 +459,7 @@ void freeAll(){
 }
 
 
-
-int copyfile(int fromfd, FILE* out) {
-   	t_coordinat coord;
-   	int totalnum=0;
-
-   	while (read(fromfd,&coord,sizeof(coord)) > 0){
-   		++totalnum;
-   		printf("%d %d %d \n",coord.found,coord.row,coord.column);
-      fprintf(out, "%d.  %d  %d\n",coord.found,coord.row,coord.column);
-   }
-   return totalnum;
-}
-
+// dizi icinde pid nin oldugu konumu verir
 int getID(t_child *arr,int size,pid_t pid){
   int i=0;
   if(NULL == arr || size <=0)
@@ -486,6 +471,8 @@ int getID(t_child *arr,int size,pid_t pid){
   return -1;
 }
 
+
+// BU FONKSIYONLAR DERS KITABINDAN ALINMISTIR
 ssize_t r_read(int fd, void *buf, size_t size) {
    ssize_t retval;
    while (retval = read(fd, buf, size), retval == -1 && errno == EINTR) ;
@@ -521,26 +508,14 @@ int copyfile3(int fromfd, int tofd) {
 }
 
 int readwrite(int fromfd, int tofd) {
-   char buf[1024];
+   char buf[512];
    int bytesread;
 
-   if ((bytesread = r_read(fromfd, buf, 1024)) < 0)
+   if ((bytesread = r_read(fromfd, buf, 512)) < 0)
       return -1;
    if (bytesread == 0)
       return 0;
    if (r_write(tofd, buf, bytesread) < 0)
       return -1;
    return bytesread;
-}
-
-int copyfile2(int fromfd, int tofd) {
-   	t_coordinat coord;
-   	int totalnum=0;
-
-   	while (read(fromfd,&coord,sizeof(t_coordinat)) > 0){
-   		++totalnum;
-   		printf("%d %d %d \n",coord.found,coord.row,coord.column);
-      write(tofd,&coord,sizeof(t_coordinat));
-   }
-   return totalnum;
 }

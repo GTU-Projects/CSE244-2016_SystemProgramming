@@ -1,8 +1,5 @@
-CC = gcc
-
-
 all: clean
-	gcc -c hw4.c
-	gcc hw4.o -o hw4 -pthread
+	gcc -c    grepFromDirT.c
+	gcc grepFromDirT.o -o grepFromDirT -pthread
 clean:
 	 rm -rf *.o
