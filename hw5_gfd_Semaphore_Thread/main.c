@@ -11,73 +11,85 @@
 #include <sys/types.h>
 #include <semaphore.h>
 #include <sys/syscall.h> // gettid
+#include <time.h>
 #include "hm.h"
 
 #ifndef PATH_MAX
  #define PATH_MAX 255;
 #endif
 
-
+// sinyal gelince flag kullanilacak
 static sig_atomic_t doneflag=0;
 
-int fdPipe[2];
-sem_t sem_mutex;
-char **strFiles=NULL;
-int inumFiles;
-char **strDirs=NULL;
-int inumDirs;
-sem_t *sem_named=NULL;
-const char *strWord=NULL;
-hmThread_t *ths=NULL; // threads and their arguments
-int totalOccNum;
-struct sigaction sigact;
+int fdPipe[2]; // pipe -> file proc-dir proc arasinda tek pipe var
+sem_t sem_mutex; // pipe icin mutex
+char **strFiles=NULL; // dosya pathleri
+int inumFiles; // dosya sayisi
+char **strDirs=NULL; // klasor adresleri
+int inumDirs; // klasor sayisi
+sem_t *sem_named=NULL; // named semafor -> fifo icin kullanilacak
+const char *strWord=NULL; // aranacak kelimenin pointeri
+hmThread_t *ths=NULL; // thread e gonderilecek parametre ve thread bilgileri
+int totalOccNum; // toplam tekrar sayisi
+struct sigaction sigact; // sigaction
 
-void sighandler(int signo){
-	printf("#### SIGINT(^C) handled ####\n");
-	doneflag=1;
+long getTimeDif(struct timeval start, struct timeval end)
+{
+    return (end.tv_sec - start.tv_sec) * 1000.0f + (end.tv_usec - start.tv_usec) / 1000.0f;
 }
-
 
 int main(int argc,char *argv[]){
 
-
 	int total=0;
+	struct timeval startTime;
+	struct timeval endTime;
 
 	if(argc != 3){
 		fprintf(stderr, "USAGE : ./exec DirName Word\n");
 		exit(EXIT_FAILURE);
 	}
 
+	gettimeofday(&startTime,NULL);
+	// sinyalleri set et
 	sigemptyset(&(sigact.sa_mask));
 	sigact.sa_handler = sighandler;
 	sigaction(SIGINT,&sigact,NULL);
 
-
-	strWord = argv[2];
-	if(!doneflag)
+	strWord = argv[2]; // aranacak kelime
+	if(!doneflag) // sinyal yoksa aramaya basla
 		total= findOccurence(argv[1],argv[2]);
 
+	gettimeofday(&endTime,NULL);
+
+	printf("SEARCH COMPLETED IN %ld ms.\n",getTimeDif(startTime,endTime));
 	printf("Total : %d\n",total);
 
 	return 0;
 }
 
+// signal handler
+void sighandler(int signo){
+	printf("#### SIGINT(^C) handled ####\n");
+	doneflag=1;
+}
 
-
-
+// klasor icinde recursive olarak kelime ariyacak
 int findOccurence(const char *dirname,const char *word){
-
-	// named semafor olustur, varsa eskisini kullan
+	// semafor ac
 	sem_unlink(SEM_NAME);
 	getnamed(SEM_NAME,&sem_named,1);
-
 
 	if(!doneflag){
 		pthread_t reader;
 
+		// thread fifodan bilgileri loga aktaracak
 		pthread_create(&reader,NULL,threadRemoveFifo,NULL);
 
+		// recursive aramaya basla
 		findRec(dirname,word);
+
+		// fifodan okuma bekleyen threade -1 yolla
+		// thread sona geldigini anlicak ve join olacak
 		int fdFifoWrite = open(FIFO_NAME,O_WRONLY | O_APPEND,0666);
 		int endOfFifo = -1;
 		write(fdFifoWrite,&endOfFifo,sizeof(int));
@@ -85,14 +97,10 @@ int findOccurence(const char *dirname,const char *word){
 		pthread_join(reader,NULL);
 	}
 
+	// semaforu kapat
 	destroynamed(SEM_NAME,sem_named);
 	return totalOccNum;
-	// fifo ac
-	// fifoyu read edecek threadi olustur
-	// read edip loga yazacak :D
-	// metod bittikten sonra fifoya bittigini belirtmek icin path = -1 yaz
 }
-
 
 
 int findRec(const char *dirPath,const char *word){
@@ -100,13 +108,11 @@ int findRec(const char *dirPath,const char *word){
 	int i;
 	pid_t pidChild=-1;
 
-
+	// pipelarin karsimamami icin pipe ac
 	sem_init(&sem_mutex,0,1);
 	if(!doneflag){
 		findContentOfDir(dirPath);
 	}
-	// TODO : RETURN DEGERINI KONTROL EDECEKSIN
-
 
 #ifdef DEBUG
 	fprintf(stdout,"[%ld] opened Directory : %s\n",(long)getpid(),dirPath);
@@ -119,11 +125,10 @@ int findRec(const char *dirPath,const char *word){
 		pthread_t pipeReadThread;
 		pipe(fdPipe); //TODO : PIPE HATA KONTROL
 		ths = (hmThread_t *)calloc(sizeof(hmThread_t),inumFiles);
-
-
-		// bu thread pipe read ucunda kalacak ve gelen herseyi fifoya yonlendirecek
+		
 		if(!doneflag){
 
+			// bu thread pipe read ucunda kalacak ve gelen herseyi fifoya yonlendirecek
 			pthread_create(&pipeReadThread,NULL,threadRemovePipe,NULL);
 
 			for(i=0;i<inumFiles;++i){
@@ -140,11 +145,9 @@ int findRec(const char *dirPath,const char *word){
 				pthread_join((ths[j].th),NULL);
 			}
 
-			// tum threadler oldugune gore artık pipe a tid -1 veer ve pipe threadi daha fazla beklemesin
+			//tum threadler oldugune gore artık dinleyici pipe a tid -1 veer ve pipe threadi daha fazla beklemesin
 			pid_t endOfPipe=-1;
-
 			write(fdPipe[1],&endOfPipe,sizeof(pid_t));
-
 			pthread_join(pipeReadThread,NULL);
 		}
 	}
@@ -155,9 +158,7 @@ int findRec(const char *dirPath,const char *word){
 
 		char strPath[PATH_MAX];
 		pid_t pidChild;
-		// eger daha onceden acılmıssa error verecek ve yoluna devam edecek
-		// geriden gelen childler icin guzel bu
-
+		
 		for(i=0;i<inumDirs;++i){
 			if(!doneflag){
 				pidChild=fork();
@@ -168,13 +169,12 @@ int findRec(const char *dirPath,const char *word){
 
 				if(pidChild==0){
 					strcpy(strPath,strDirs[i]);
-					freeAll();
+					freeAll(); // childler isleme girmeden once eski verileri silsinler
 					if(!doneflag)
 						findRec(strPath,word);
 					exit(0);
 				}
 			}
-
 		}
 		// parent child procesleri beklicek
 		// sinyal falan gelse bile tum cocuklar olmeden olmek YOOKKK
@@ -189,6 +189,7 @@ int findRec(const char *dirPath,const char *word){
 	return 0;
 }
 
+// alinan yerleri geri ver
 void freeAll(){
 
 	int i=0;
@@ -221,10 +222,10 @@ void freeAll(){
 	}
 }
 
-
+// verilen klasor icindeki dosya ve klasor bilgilerini kaydeder
 int findContentOfDir(const char *dirPath){
 
-	char strPath[PATH_MAX];
+	char strPath[PATH_MAX]; // buffer
 	struct dirent * pDirentCurr;
 	pid_t pid = getpid();
 	DIR *pDir;
@@ -232,12 +233,12 @@ int findContentOfDir(const char *dirPath){
 	inumFiles=0;
 	inumDirs=0;
 
-
 	if((pDir = opendir(dirPath)) ==NULL){
 		perror("Dir open :");
 		exit(EXIT_FAILURE);
 	}
 
+	// bir defa tara ve sayilarini ogren
 	while(!doneflag && NULL != (pDirentCurr = readdir(pDir))){
 		if(strcmp(pDirentCurr->d_name,".")!=0 && strcmp(pDirentCurr->d_name,"..")!=0){
 			sprintf(strPath,"%s/%s",dirPath,pDirentCurr->d_name);
@@ -254,7 +255,7 @@ int findContentOfDir(const char *dirPath){
 	}
 
 	// sinyal gelme durumlarinda buralari olabildigince atlariz
-
+	// dinamic yerler ac
 	rewinddir(pDir);
 	if(!doneflag && inumFiles>0){
 		strFiles = (char **)calloc(sizeof(char *),inumFiles);
@@ -270,6 +271,7 @@ int findContentOfDir(const char *dirPath){
 	int newFileNum =0;
 	int newDirNum=0;
 
+	// pathleri dinamic yerlere kaydet
 	while(!doneflag && NULL != (pDirentCurr = readdir(pDir))){
 		if(strcmp(pDirentCurr->d_name,".")!=0 && strcmp(pDirentCurr->d_name,"..")!=0){
 			sprintf(strPath,"%s/%s",dirPath,pDirentCurr->d_name);
@@ -286,11 +288,11 @@ int findContentOfDir(const char *dirPath){
 	closedir(pDir);
 	pDir=NULL;
 	pDirentCurr=NULL;
-	return inumFiles+inumDirs;
+	return inumFiles+inumDirs; // toplam sayiyi return et
 }
 
 
-
+// thread kullanacak ve surekli fifodan bilgi alip loga basicak
 void *threadRemoveFifo(void *arg){
 
 	pid_t tid;
@@ -309,10 +311,9 @@ void *threadRemoveFifo(void *arg){
 	sprintf(strMessage,"##### Search start for '%s'. #####\n",strWord);
 	write(fdLog,strMessage,strlen(strMessage)*sizeof(char));
 
-	//memset(strPath,0,PATH_MAX);
 	// bir tane tid oku eger gecerli ise 2tane olacak sekilde koordinatlar okicak
 
-  // readler kac byte okudu kontrol et
+  	// readler kac byte okudu kontrol et
 	int a=0,b=0;
 	while(!doneflag && (a=read(fdFifoRead,&strSize,sizeof(int)))>0 && strSize!=-1){
 		(b=read(fdFifoRead,strPath,sizeof(char)*strSize));
@@ -321,52 +322,57 @@ void *threadRemoveFifo(void *arg){
 
 		sprintf(strMessage,"\n## Path : %s. ##\n",strPath);
 		write(fdLog,strMessage,sizeof(char)*strlen(strMessage));
-		//memset(strPath,0,PATH_MAX);
 
 		int row=0,col=0,i=0;
 
+		// koordinatlari oku
 		while(!doneflag && read(fdFifoRead,&row,sizeof(int))>0 && read(fdFifoRead,&col,sizeof(int))>0 ){
 			++i;
 			sprintf(strMessage,"%d -> Row : %d - Col : %d\n",i,row,col);
-			#ifdef DEBUG
-			//TODO : OPEN THRERE
-			//printf("%s",strMessage);
-			#endif
 
-			if(row==-1){
+			if(row==-1){ // koorninat -1 ise o zaman farkli dosyanin inputu gelecek demektir
 				--i;
 				break;
 			}
 			write(fdLog,strMessage,sizeof(char)*strlen(strMessage));
-			memset(strPath,0,PATH_MAX);
 		}
 		sprintf(strMessage,"## Path Total : %d. ##\n",i);
 		write(fdLog,strMessage,strlen(strMessage)*sizeof(char));
-		memset(strPath,0,PATH_MAX);
 		total+=i;
 	}
 
 	totalOccNum=total;
-	sprintf(strMessage,"##### TOTAL OCCURENCE NUMBER : %d. #####\n",totalOccNum);
+	sprintf(strMessage,"\n##### TOTAL OCCURENCE NUMBER : %d. #####\n",totalOccNum);
 	write(fdLog,strMessage,strlen(strMessage)*sizeof(char));
+
+	if(doneflag==1){
+		sprintf(strMessage,"\n##### SIGINT(^C) HANDLED #####\n");
+		write(fdLog,strMessage,strlen(strMessage)*sizeof(char));
+	}
+
 	close(fdLog);
 }
 
+/*
+** Bu fonksiyonu thread kullanacak ve kendisne verilen file icinde kelie ariyacak
+** buldugu sonuclari ise yine kendine verilen pipe uzerinde kendi parent threadine yollicak
+*/
 void *threadFindOcc(void *args){
 
 	hmThread_t *pArgs = (hmThread_t *)args;
 	pArgs->tid = syscall(SYS_gettid);
 
+	// tek pipe oldugu icin lock karismamasii sagliyalim
 	sem_wait(&sem_mutex);
 	#ifdef DEBUG
 		//fprintf(stdout,"Thread[%ld] in Mutex - treadFindOcc.\n",(long)pArgs->tid);
 	#endif
 
 	if(!doneflag)
-	write(fdPipe[1],&(pArgs->tid),sizeof(pid_t));
+		write(fdPipe[1],&(pArgs->tid),sizeof(pid_t));
 
 	int total=0;
-	if(!doneflag)
+	if(!doneflag) // aramayi baslat
 		total = findOccurenceInRegular(fdPipe[1],pArgs->strFilePath,pArgs->word);
 
 	int endOfPipe = -1;
@@ -374,7 +380,8 @@ void *threadFindOcc(void *args){
 	// burayi kesin yazsinki en azindan threadin oldugunu diger thread bilsin
 	write(fdPipe[1],&endOfPipe,sizeof(int));
 	write(fdPipe[1],&total,sizeof(int));
-	sem_post(&sem_mutex);
+
+	sem_post(&sem_mutex); // unlock mutex
 
 	// dosyada koordinatlari ara
 	// kendi tid si ve daha sonra satir sutun olarak yaz
@@ -460,6 +467,7 @@ void *threadRemovePipe(void *arg){
 					break;
 				}
 			}if(doneflag){ // eger sinyal gelirse bitis mesaji yolla
+				// sinyal gelirse koordinatlari -1 yolliyalimki bittigini anlasin
 				int end=-1;
 				write(fdFifoWrite,&end,sizeof(int));
 				write(fdFifoWrite,&end,sizeof(int));
@@ -553,7 +561,9 @@ int findOccurenceInRegular(int fd,const char* fileName,const char *word){
   return found;
 }
 
-
+/* BU FONKSIYONLAR DERS KITABINDAN ALINDI */
+/* SOURCE :UnixTM Systems Programming: Communication, Concurrency, and Threads */
+/* Chapter 14 - Semaphores */
 int getnamed(char *name, sem_t **sem, int val) {
 	while (((*sem = sem_open(name, FLAGS, PERMS, val)) == SEM_FAILED) &&
 									(errno == EINTR)) ;
