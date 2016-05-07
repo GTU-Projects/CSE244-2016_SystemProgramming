@@ -76,13 +76,12 @@ void sighandler(int signo){
 
 // klasor icinde recursive olarak kelime ariyacak
 int findOccurence(const char *dirname,const char *word){
-	// semafor ac
-	sem_unlink(SEM_NAME);
-	getnamed(SEM_NAME,&sem_named,1);
 
 	if(!doneflag){
 		pthread_t reader;
 
+		sem_unlink(SEM_NAME);
+		mkfifo(FIFO_NAME,0666);
 		// thread fifodan bilgileri loga aktaracak
 		pthread_create(&reader,NULL,threadRemoveFifo,NULL);
 
@@ -97,9 +96,6 @@ int findOccurence(const char *dirname,const char *word){
 
 		pthread_join(reader,NULL);
 	}
-
-	// semaforu kapat
-	destroynamed(SEM_NAME,sem_named);
 	return totalOccNum;
 }
 
@@ -109,7 +105,10 @@ int findRec(const char *dirPath,const char *word){
 	int i;
 	pid_t pidChild=-1;
 
+
+
 	// pipelarin karsimamami icin pipe ac
+
 	sem_init(&sem_mutex,0,1);
 	if(!doneflag){
 		findContentOfDir(dirPath);
@@ -129,6 +128,12 @@ int findRec(const char *dirPath,const char *word){
 		
 		if(!doneflag){
 
+
+
+			int semStat=getnamed(SEM_NAME,&sem_named,1);
+			#ifdef DEBUG
+				fprintf(stdout,"Semaphore Open status  : %d\n",semStat);
+			#endif
 			// bu thread pipe read ucunda kalacak ve gelen herseyi fifoya yonlendirecek
 			pthread_create(&pipeReadThread,NULL,threadRemovePipe,NULL);
 
@@ -139,8 +144,6 @@ int findRec(const char *dirPath,const char *word){
 					pthread_create(&(ths[i].th),NULL,threadFindOcc,(void *)&ths[i]);
 				}else break;
 			}
-
-
 			int j=0;
 			for(j=0;j<i;++j){
 				pthread_join((ths[j].th),NULL);
@@ -150,9 +153,9 @@ int findRec(const char *dirPath,const char *word){
 			pid_t endOfPipe=-1;
 			write(fdPipe[1],&endOfPipe,sizeof(pid_t));
 			pthread_join(pipeReadThread,NULL);
+			sem_close(sem_named);
 		}
 	}
-
 
 	// klasorler icin fork yapilacak
 	if(!doneflag && inumDirs>0){
@@ -167,9 +170,9 @@ int findRec(const char *dirPath,const char *word){
 					perror("Fork error");
 					exit(0);
 				}
-
 				if(pidChild==0){
 					strcpy(strPath,strDirs[i]);
+					sem_close(sem_named); // recursiveden once kapat semaforu
 					freeAll(); // childler isleme girmeden once eski verileri silsinler
 					if(!doneflag)
 						findRec(strPath,word);
@@ -192,7 +195,6 @@ int findRec(const char *dirPath,const char *word){
 
 // alinan yerleri geri ver
 void freeAll(){
-
 	int i=0;
 	// free and handle dangling pointers
 	for(i=0;i<inumDirs;++i){
@@ -309,7 +311,7 @@ void *threadRemoveFifo(void *arg){
 
 	int fdLog = open(LOG_FILE_NAME,(O_WRONLY  | O_CREAT | O_TRUNC),0666);
 
-	mkfifo(FIFO_NAME,0666);
+	
 	int fdFifoRead = open(FIFO_NAME,O_RDWR);
 
 	sprintf(strMessage,"##### Search start for '%s'. #####\n",strWord);
@@ -320,7 +322,8 @@ void *threadRemoveFifo(void *arg){
   	// readler kac byte okudu kontrol et
 	int a=0,b=0;
 	while(!doneflag && (a=read(fdFifoRead,&strSize,sizeof(int)))>0 && strSize!=-1){
-		(b=read(fdFifoRead,strPath,sizeof(char)*strSize));
+
+		b=read(fdFifoRead,strPath,sizeof(char)*strSize);
 		strPath[strSize]='\0';
 		//printf("StrSize : %d a%d b%d - %s-\n",strSize,a,b,strPath);
 
@@ -367,13 +370,19 @@ void *threadFindOcc(void *args){
 	pArgs->tid = syscall(SYS_gettid);
 
 	// tek pipe oldugu icin lock karismamasii sagliyalim
+
+
 	sem_wait(&sem_mutex);
 	#ifdef DEBUG
 		//fprintf(stdout,"Thread[%ld] in Mutex - treadFindOcc.\n",(long)pArgs->tid);
 	#endif
 
-	if(!doneflag)
-		write(fdPipe[1],&(pArgs->tid),sizeof(pid_t));
+	if(!doneflag){
+		int check = write(fdPipe[1],&(pArgs->tid),sizeof(pid_t));
+		#ifdef DEBUG
+			printf("Pid write Check : %d\n",check);
+		#endif
+	}
 
 	int total=0;
 	if(!doneflag) // aramayi baslat
@@ -436,7 +445,6 @@ void *threadRemovePipe(void *arg){
 			//fprintf(stdout,"Thread[%d][%ld] :  %s\n",index,(long)tid,ths[index].strFilePath);
 		#endif
 
-
 		// eger aranan filede bulunmadiysa bosuna loga basmayalim
 		int sizeOfFileName = strlen(ths[index].strFilePath);
 
@@ -445,18 +453,19 @@ void *threadRemovePipe(void *arg){
 
 		sem_wait(sem_named);
 		if(!doneflag && row!=-1){
-			
 			// fifoya bilgileri gonder
 			int a = write(fdFifoWrite,&sizeOfFileName,sizeof(int));
-
-			int b = write(fdFifoWrite,ths[index].strFilePath,strlen(ths[index].strFilePath));
-			//printf("Size : %d - a%d - b%d %s-\n",sizeOfFileName,a,b,ths[index].strFilePath);
+			int size = strlen(ths[index].strFilePath);
+			int b = write(fdFifoWrite,ths[index].strFilePath,size*sizeof(char));
+			/*printf("%s",strerror(errno));
+			printf("S %d",size);
+			printf("Size : %d - a%d - b%d %s-\n",sizeOfFileName,a,b,ths[index].strFilePath);*/
 			write(fdFifoWrite,&row,sizeof(int));
 			write(fdFifoWrite,&col,sizeof(int));
 
 			while(!doneflag && read(fdPipe[0],&row,sizeof(int))>0 && read(fdPipe[0],&col,sizeof(int))>0){
 				#ifdef DEBUG
-					fprintf(stdout,"Pipe-Row: %d - Col: %d\n",row,col);
+					//fprintf(stdout,"Pipe-Row: %d - Col: %d\n",row,col);
 				#endif
 
 				// fifoya yonlendirme yapalımm
@@ -480,7 +489,6 @@ void *threadRemovePipe(void *arg){
 		sem_post(sem_named);
 	}
 }
-
 
 // regular dosyami kontrol et
 int is_regfile(const char * fileName){

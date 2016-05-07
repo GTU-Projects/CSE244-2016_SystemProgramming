@@ -11,7 +11,7 @@
 #include <dirent.h>
 
 #define LOG_FILE_NAME "gfd.log"
-#define FIFO_NAME "fifo.ff"
+#define FIFO_NAME ".fifo.ff"
 #define SEM_NAME "/hm.sem"
 #define MESSAGE_MAX 100
 
@@ -102,5 +102,15 @@ int findContentOfDir(const char *dirPath);
 ** kendine gelen fildes uzerinden yazacak
 */
 int findOccurenceInRegular(int fd,const char* fileName,const char *word);
+
+/* BU FONKSIYONLAR KITAPTAN ALINDI */
+
+// named semafor acar
+int getnamed(char *name, sem_t **sem, int val);
+
+// named semaforu kapatır
+int destroynamed(char *name, sem_t *sem);
+
+
 
 #endif
