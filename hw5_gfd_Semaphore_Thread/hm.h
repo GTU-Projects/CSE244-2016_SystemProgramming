@@ -33,7 +33,6 @@ typedef struct{
 
 void freeAll();
 
-
 int findOccurance(const char *dirname,const char *word);
 
 int findRec(const char *dirPath,const char *word);
