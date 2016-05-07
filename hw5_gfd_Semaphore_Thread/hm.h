@@ -12,8 +12,15 @@
 
 #define LOG_FILE_NAME "gfd.log"
 #define FIFO_NAME "fifo.ff"
+#define SEM_NAME "/hm.sem"
+#define MESSAGE_MAX 100
 
-#define DEBUG
+
+#define PERMS (mode_t)(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
+#define FLAGS (O_CREAT | O_EXCL)
+
+//#define DEBUG
+//#define DEBUG_FILE_READ
 
 typedef struct{
 	pthread_t th;
@@ -29,7 +36,7 @@ void freeAll();
 
 int findOccurance(const char *dirname,const char *word);
 
-int findRec(const char *dirPath,const char *word,int fd);
+int findRec(const char *dirPath,const char *word);
 
 void *threadFindOcc(void *arg);
 

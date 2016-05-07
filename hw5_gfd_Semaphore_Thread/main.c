@@ -20,6 +20,16 @@
 
 
 
+int fdPipe[2];
+sem_t sem_mutex;
+char **strFiles=NULL;
+int inumFiles;
+char **strDirs=NULL;
+int inumDirs;
+sem_t *sem_named=NULL;
+const char *strWord=NULL;
+hmThread_t *ths=NULL; // threads and their arguments
+int totalOccNum;
 
 
 int main(int argc,char *argv[]){
@@ -32,7 +42,7 @@ int main(int argc,char *argv[]){
 		exit(EXIT_FAILURE);
 	}
 
-
+	strWord = argv[2];
 	total= findOccurence(argv[1],argv[2]);
 
 	printf("Total : %d\n",total);
@@ -45,26 +55,24 @@ int main(int argc,char *argv[]){
 
 int findOccurence(const char *dirname,const char *word){
 
+	// named semafor olustur, varsa eskisini kullan
+	sem_unlink(SEM_NAME);
+	getnamed(SEM_NAME,&sem_named,1);
 
-	int fdLog = open(LOG_FILE_NAME,(O_WRONLY | O_CREAT),0666);
-	// TODO : assert fopen
-
-	mkfifo(FIFO_NAME,0666);
-	int fdFifo = open(FIFO_NAME,O_RDWR);
-
-	/*pthread_t reader;
-	pthread_create(&reader,NULL,threadRemoveFifo,NULL);*/
+	pthread_t reader;
+	pthread_create(&reader,NULL,threadRemoveFifo,NULL);
 
 
-	int total = findRec(dirname,word,fdFifo);
+	findRec(dirname,word);
+	int fdFifoWrite = open(FIFO_NAME,O_WRONLY | O_APPEND,0666);
+	int endOfFifo = -1;
+	write(fdFifoWrite,&endOfFifo,sizeof(int));
 
+	pthread_join(reader,NULL);
 
-	//pthread_join(reader,NULL);
+	destroynamed(SEM_NAME,sem_named);
 
-	close(fdLog);
-	close(fdFifo);
-
-	return total;
+	return totalOccNum;
 	// fifo ac 
 	// fifoyu read edecek threadi olustur
 	// read edip loga yazacak :D
@@ -75,18 +83,8 @@ int findOccurence(const char *dirname,const char *word){
 }
 
 
-int fdPipe[2];
-sem_t sem_mutex;
-char **strFiles;
-int inumFiles;
-char **strDirs;
-int inumDirs;
-hmThread_t *ths; // threads and their arguments
 
-
-
-
-int findRec(const char *dirPath,const char *word,int fd){
+int findRec(const char *dirPath,const char *word){
 
 	int i;
 	pid_t pidChild=-1;
@@ -101,6 +99,7 @@ int findRec(const char *dirPath,const char *word,int fd){
 	fprintf(stdout,"[%ld] found %d files and %d dirs in %s\n",(long)getpid(),inumFiles,inumDirs,dirPath);
 #endif
 
+	// once regularlar icin threadleri yolla isleme baslasinlar
 	if(inumFiles>0){
 		pthread_t pipeReadThread;
 		pipe(fdPipe); //TODO : PIPE HATA KONTROL
@@ -120,12 +119,41 @@ int findRec(const char *dirPath,const char *word,int fd){
 		}
 
 		// tum threadler oldugune gore artık pipe a tid -1 veer ve pipe threadi daha fazla beklemesin
-		int endOfPipe=-1;
-		write(fdPipe[1],&endOfPipe,sizeof(int));
+		pid_t endOfPipe=-1;
+
+		write(fdPipe[1],&endOfPipe,sizeof(pid_t));
+
 		pthread_join(pipeReadThread,NULL);
+
 	}
 
-	
+	// klasorler icin fork yapilacak
+	if(inumDirs>0){
+		char strPath[PATH_MAX];
+		pid_t pidChild;
+		// eger daha onceden acılmıssa error verecek ve yoluna devam edecek
+		// geriden gelen childler icin guzel bu
+				
+		for(i=0;i<inumDirs;++i){
+			pidChild=fork();
+			if(pidChild ==-1){
+				perror("Fork error");
+				exit(0);
+			}
+
+			if(pidChild==0){
+				strcpy(strPath,strDirs[i]);
+				freeAll();
+				findRec(strPath,word);
+				exit(0);
+			}	
+		}
+		// parent child procesleri beklicek
+		while((pidChild = wait(NULL))!=-1){
+			printf("[%ld] process dead.\n",(long)pidChild);
+		}
+	}
+
 	freeAll();
 	return 0;
 }
@@ -162,7 +190,6 @@ void freeAll(){
 		ths=NULL;
 	}
 
-
 }
 
 
@@ -172,8 +199,10 @@ int findContentOfDir(const char *dirPath){
 	struct dirent * pDirentCurr;
 	pid_t pid = getpid();
 	DIR *pDir;
+
 	inumFiles=0;
-	inumFiles=0;
+	inumDirs=0;
+
 
 	if((pDir = opendir(dirPath)) ==NULL){
 		perror("Dir open :");
@@ -184,7 +213,7 @@ int findContentOfDir(const char *dirPath){
 		if(strcmp(pDirentCurr->d_name,".")!=0 && strcmp(pDirentCurr->d_name,"..")!=0){
 			sprintf(strPath,"%s/%s",dirPath,pDirentCurr->d_name);
 			#ifdef DEBUG
-				fprintf(stdout, "[%ld] %d. Elem is %s\n",(long)pid,inumFiles+inumDirs,strPath);
+				//fprintf(stdout, "[%ld] %d. Elem is %s\n",(long)pid,inumFiles+inumDirs,strPath);
 			#endif
 			if(is_directory(strPath)){
 				++inumDirs;
@@ -196,17 +225,20 @@ int findContentOfDir(const char *dirPath){
 	}
 	
 	rewinddir(pDir);
-	if(inumFiles>0)
+	if(inumFiles>0){
 		strFiles = (char **)calloc(sizeof(char *),inumFiles);
+	}
 	else strFiles=NULL;
 
-	if(inumDirs>0)
+	if(inumDirs>0){
 		strDirs = (char **)calloc(sizeof(char *),inumDirs);
+	}
 	else strDirs=NULL;
 
 
 	inumFiles=0;
 	inumDirs=0;
+
 	while(NULL != (pDirentCurr = readdir(pDir))){
 		if(strcmp(pDirentCurr->d_name,".")!=0 && strcmp(pDirentCurr->d_name,"..")!=0){
 			sprintf(strPath,"%s/%s",dirPath,pDirentCurr->d_name);
@@ -231,71 +263,181 @@ int findContentOfDir(const char *dirPath){
 
 void *threadRemoveFifo(void *arg){
 
+	pid_t tid; 
+	int totalReaded=0;
+	int fdFifoWrite;
+	int strSize;
+	char strPath[PATH_MAX];
+	char strMessage[MESSAGE_MAX];
+	int total=0;
+
+
+	int fdLog = open(LOG_FILE_NAME,(O_WRONLY  | O_CREAT | O_TRUNC),0666);
+
+	mkfifo(FIFO_NAME,0666);
+	int fdFifoRead = open(FIFO_NAME,O_RDWR);
+
+	sprintf(strMessage,"##### Search start for '%s'. #####\n",strWord);
+	write(fdLog,strMessage,strlen(strMessage)*sizeof(char));
+
+	memset(strPath,0,PATH_MAX);
+	// bir tane tid oku eger gecerli ise 2tane olacak sekilde koordinatlar okicak
+		
+	int a,b;
+	while((a=read(fdFifoRead,&strSize,sizeof(int)))>0 && strSize!=-1){
+		(b=read(fdFifoRead,strPath,sizeof(char)*strSize));
+		strPath[strSize]='\0';
+		printf("StrSize : %d a%d b%d - %s-\n",strSize,a,b,strPath);
+
+		
+		
+		sprintf(strMessage,"## Path : %s. ##\n",strPath);
+		write(fdLog,strMessage,sizeof(char)*strlen(strMessage));
+		memset(strPath,0,PATH_MAX);
+
+		int row=0,col=0,i=0;
+		while(read(fdFifoRead,&row,sizeof(int))>0 && read(fdFifoRead,&col,sizeof(int))>0 ){
+			++i;
+			sprintf(strMessage,"%d -> Row : %d - Col : %d\n",i,row,col);
+			#ifdef DEBUG
+			//TODO : OPEN THRERE	
+			//printf("%s",strMessage);
+			#endif
+
+			if(row==-1){
+				--i;
+				break;
+			}
+			write(fdLog,strMessage,sizeof(char)*strlen(strMessage));
+			memset(strPath,0,PATH_MAX);
+		}
+		sprintf(strMessage,"## Path Total : %d. ##\n",i);
+		write(fdLog,strMessage,strlen(strMessage)*sizeof(char));
+		memset(strPath,0,PATH_MAX);
+		total+=i;
+	}
+
+	totalOccNum=total;
+	sprintf(strMessage,"##### TOTAL OCCURENCE NUMBER : %d. #####\n",totalOccNum);
+	write(fdLog,strMessage,strlen(strMessage)*sizeof(char));
+	close(fdLog);
 }
 
 void *threadFindOcc(void *args){
 
 	hmThread_t *pArgs = (hmThread_t *)args;
 	pArgs->tid = syscall(SYS_gettid);
-	#ifdef DEBUG
-		fprintf(stdout,"Thread[%ld] in treadFindOcc.\n",(long)pArgs->tid);
-	#endif
+	
 	
 	sem_wait(&sem_mutex);
-		
-		write(fdPipe[1],&(pArgs->tid),sizeof(pid_t));
-		int i=0;
-		for(i=0;i<3;++i){
-			write(fdPipe[1],&i,sizeof(int));
-			write(fdPipe[1],&i,sizeof(int));
-		}
+	#ifdef DEBUG
+		//fprintf(stdout,"Thread[%ld] in Mutex - treadFindOcc.\n",(long)pArgs->tid);
+	#endif
+	
+	write(fdPipe[1],&(pArgs->tid),sizeof(pid_t));
+	
 
-		sleep(3);
-		// TODO : BURADA ARAMA DEVREYE GIRECEK
-		int endOfPipe = -1;
+	int total = findOccurenceInRegular(fdPipe[1],pArgs->strFilePath,pArgs->word);
+	
 
-		// row col -1 girildi yani bu thread okumayi bitirdi
-		write(fdPipe[1],&endOfPipe,sizeof(int));	 
-		write(fdPipe[1],&endOfPipe,sizeof(int));
+	int endOfPipe = -1;
+	
+	write(fdPipe[1],&endOfPipe,sizeof(int));	 
+	write(fdPipe[1],&total,sizeof(int));
 	sem_post(&sem_mutex);
-
 
 	// dosyada koordinatlari ara
 	// kendi tid si ve daha sonra satir sutun olarak yaz
 	// bittiyse -1 toplam olarak yaz ve join ol
 
-
 	// tid row col
 	//	   row col
-	//     -1  total
+	//     -1  total // bitis durumu
 
 }
 
+// thread bilgi dizisinden threadin indesini bul
+int findThreadIndex(pid_t tid){
+
+	int i=0;
+	for(i=0;i<inumFiles;++i){
+		if(ths[i].tid == tid)
+			return i;
+	}
+	return -1;
+}
+
+
+// kendisine gelen toplam thread sayisi kadar tid -1 okuyana kadar pipe i bosalt
+// tid -1 i threadler oldukten sonra main process basacak fifoya sona geldigini bildirmek icin
+// okuduklarini fifoya yaz
+
+// read : tid row col
+//			  -1 total
+
+// write : pathlen path row col
+//                      -1 total
 void *threadRemovePipe(void *arg){
 
 	pid_t tid; 
+	int totalReaded=0;
+	int fdFifoWrite;
+
+	fdFifoWrite = open(FIFO_NAME,O_WRONLY,O_APPEND);
+	FILE *fp = fdopen(fdFifoWrite,"a");
 
 	// bir tane tid oku eger gecerli ise 2tane olacak sekilde koordinatlar okicak
+
 	while(read(fdPipe[0],&tid,sizeof(pid_t))>0 && tid!=-1){
 
-		printf("tid : %ld\n",(long)tid);
-		int row,col;
-		while(read(fdPipe[0],&row,sizeof(int))>0 && read(fdPipe[0],&col,sizeof(int))>0){
-			printf("\tr: %d - c:%d\n",row,col);
-			if(row==-1 || col==-1)
-				break;
+		int row=0,col=0;
+		int index = findThreadIndex(tid);
+		#ifdef DEBUG
+			//fprintf(stdout,"Thread[%d][%ld] :  %s\n",index,(long)tid,ths[index].strFilePath);
+		#endif
+
+		int sizeOfFileName = strlen(ths[index].strFilePath); 
+
+		// eger aranan filede bulunmadiysa bosuna loga basmayalim
+		read(fdPipe[0],&row,sizeof(int));
+		read(fdPipe[0],&col,sizeof(int));
+
+		sem_wait(sem_named);
+		if(row!=-1){
+
+			// fifoya bilgileri gonder
+			int a = write(fdFifoWrite,&sizeOfFileName,sizeof(int));
+			
+			int b = write(fdFifoWrite,ths[index].strFilePath,strlen(ths[index].strFilePath));
+			printf("Size : %d - a%d - b%d %s-\n",sizeOfFileName,a,b,ths[index].strFilePath);
+			write(fdFifoWrite,&row,sizeof(int));
+			write(fdFifoWrite,&col,sizeof(int));
+
+			while(read(fdPipe[0],&row,sizeof(int))>0 && read(fdPipe[0],&col,sizeof(int))>0){
+				#ifdef DEBUG
+				//TODO : OPEN THERE
+				//fprintf(stdout,"Pipe-Row: %d - Col: %d\n",row,col);
+				#endif
+
+				// fifoya yonlendirme yapalımm
+
+				write(fdFifoWrite,&row,sizeof(int));
+				write(fdFifoWrite,&col,sizeof(int));
+
+				// bir tanesi yazildi demekki
+				// yeni pid li veri cekmeye gec
+				if(row==-1){
+					totalReaded=col;
+					break;
+				}
+			}
+
 		}
-		
 
+
+		sem_post(sem_named);
 	}
-	// kendisine gelen toplam thread sayisi kadar tid -1 okuyana kadar pipe i bosalt
-	// okuduklarini fifoya yaz
 
-	// read : tid row col
-	//			  -1 total
-
-	// write : pathlen path row col
-	//                      -1 total
 }
 
 
@@ -334,6 +476,7 @@ int findOccurenceInRegular(int fd,const char* fileName,const char *word){
 	int row=0;
 	int found=0;
 	int logCreated = 0;
+	pid_t tid = syscall(SYS_gettid);
 
 	if((fdFileToRead = open(fileName,O_RDONLY)) == -1){
 	fprintf(stderr," Failed open \"%s\" : %s ",fileName,strerror(errno));
@@ -341,7 +484,7 @@ int findOccurenceInRegular(int fd,const char* fileName,const char *word){
 	}
 
 	#ifdef DEBUG_FILE_READ
-	printf("[%ld]' thread searches in :%s\n",(long)getpid(),fileName);
+		fprintf(stdout,"[s%ld] thread searches in :%s\n",(long)tid,fileName);
 	#endif
 	/* Karakter karakter ilerleyerek kelimeyi bul. Kelimenin tum karekterleri arka
 	arkaya bulununca imleci geriye cek ve devam et. Tum eslesen kelimeleri bul
@@ -370,7 +513,39 @@ int findOccurenceInRegular(int fd,const char* fileName,const char *word){
       i=0;
     }
   }
+
   /* dosyalarin kapatilmasi*/
+  #ifdef DEBUG_FILE_READ
+  	fprintf(stdout,"[e%ld] thread end of %s\n",(long)tid,fileName);
+  #endif
   close(fdFileToRead);
   return found;
+}
+
+
+int getnamed(char *name, sem_t **sem, int val) {
+	while (((*sem = sem_open(name, FLAGS, PERMS, val)) == SEM_FAILED) &&
+									(errno == EINTR)) ;
+	if (*sem != SEM_FAILED)
+		return 0;
+	if (errno != EEXIST)
+		return -1;
+	while (((*sem = sem_open(name, 0)) == SEM_FAILED) && (errno == EINTR)) ;
+	
+	if (*sem != SEM_FAILED)
+		return 0;
+	
+	return -1;
+}
+
+int destroynamed(char *name, sem_t *sem) {
+	int error = 0;
+	if (sem_close(sem) == -1)
+		error = errno;
+	if ((sem_unlink(name) != -1) && !error)
+		return 0;
+	if (error)
+		/* set errno to first error that occurred */
+		errno = error;
+	return -1;
 }
