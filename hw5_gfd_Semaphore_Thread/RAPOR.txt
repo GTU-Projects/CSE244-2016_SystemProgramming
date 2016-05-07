@@ -1,0 +1,33 @@
+###  HASAN MEN - 131044009 
+###  SISTEM HW5 - GREPFROMDIR THREAD+SEMAPHORES
+###  6.5.2016 - 7.5.2016 
+
+
+
+Nasil Calisir ?
+1. Aranacak klasor ve kelime alinir
+2. Klasor icindeki toplam klasor ve dosya sayisini bul
+3. Fifo ac ve bu fifoyu surekli okuyup loga kasacak thread ac
+4. Threadin nelere gore duracagi kod icinde yazildi.
+5. Her dosya icin bir thread ac ve mutex icinde bir pipe ac.
+6. Pipe i surekli okuyacak bir thread daha ac.
+7. Threadler bilgi gonderdikce pipeThreadimizde okuma yapacak ve fifoya(SEMAFOR BURADA) yonlendirme yapicak
+8. Klasorlerin her biri icin fork edilip islemler tekrarlanacak
+9. Aranacak dosya kalmayinca fifoThreadine -1 yolla oda isini bitirsin.
+10. Toplam calisma suresi ve sonucu ekrana bas.
+
+
+NOTLAR : 
+1.Cok karisiklik olmamasi icin CTRL+C sinyali tek tutuldu.
+2.Program sonlanana kadar sonuclar loga yaziliyor. 
+3.Fifomuzu namesemafor ile kontrol altina aldik.
+4.Thread-Proc arasinda tek pipe oldugu icin mutex ile sirali erisim saglandi.
+
+
+VALGRIND : 
+-- SADECE SEM_OPENDEN KAYNAKLANAN STEAL_REACHABLE KALDI.
+-- HATA SISTEM KAYNAKLIYMIS
+
+
+NOT2:
+-- hm klasornunun icinde a aradim 80k ya yakin sonucta hatasiz calisti.

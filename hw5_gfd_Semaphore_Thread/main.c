@@ -62,8 +62,9 @@ int main(int argc,char *argv[]){
 	gettimeofday(&endTime,NULL);
 
 	printf("SEARCH COMPLETED IN %ld ms.\n",getTimeDif(startTime,endTime));
-	printf("Total : %d\n",total);
+	printf("Found %d occurances.\n",total);
 
+	unlink(FIFO_NAME);
 	return 0;
 }
 
@@ -214,12 +215,15 @@ void freeAll(){
 	}
 	strFiles=NULL;
 
+	// pipe icin kullanilan mutexi sil
 	sem_destroy(&sem_mutex);
 
 	if(ths != NULL){
 		free(ths);
 		ths=NULL;
 	}
+
+	//unlink(FIFO_NAME);
 }
 
 // verilen klasor icindeki dosya ve klasor bilgilerini kaydeder
