@@ -16,9 +16,10 @@
 #define LOG_FILE_NAME "gfd.log"
 #define FIFO_NAME ".fifo.ff"
 #define SEM_NAME "/hm.sem"
+#define SEM_SHARED_NAME "/hm.shmsem"
 #define MESSAGE_MAX 100
 
-#define MESSAGE_SIZE 50
+#define MESSAGE_SIZE 20
 
 
 #define PERMS (mode_t)(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
@@ -29,7 +30,6 @@
 
 typedef struct{
 	pthread_t th;
-	pid_t tid;
 	const char *strFilePath; // hangi dosyadan okuyacak
 	const char *word; // ne okuyacak
 }hmThread_t;
@@ -111,7 +111,7 @@ int findContentOfDir(const char *dirPath);
 ** Bu fonksiyon dosya icinde kelimeleri ariyacak ve buldugu her koordinati
 ** kendine gelen fildes uzerinden yazacak
 */
-int findOccurenceInRegular(int fd,const char* fileName,const char *word);
+occurance_t * findOccurenceInRegular(const char* fileName,const char *word);
 
 /* BU FONKSIYONLAR KITAPTAN ALINDI */
 
