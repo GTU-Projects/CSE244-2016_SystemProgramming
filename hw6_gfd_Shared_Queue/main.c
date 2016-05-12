@@ -44,42 +44,22 @@ long getTimeDif(struct timeval start, struct timeval end)
 int main(int argc,char *argv[]){
 
 	int total=0;
-	struct timeval startTime;
-	struct timeval endTime;
-
 	if(argc != 3){
 		fprintf(stderr, "USAGE : ./exec DirName Word\n");
 		exit(EXIT_FAILURE);
 	}
 
-	gettimeofday(&startTime,NULL);
+
 	// sinyalleri set et
 	sigact.sa_handler = sighandler;
 	sigaction(SIGINT,&sigact,NULL);
 
-	unlink(LOG_FILE_NAME);
-
-	shmid = shmget(shmKey,sizeof(int),IPC_CREAT | 0600);
-	int *shmData= shmat(shmid,NULL,0);
-	if(shmData == (int*)-1){
-		perror("shmat");
-		exit(1);
-	}
-	*shmData=0;
-	
-	strWord = argv[2]; // aranacak kelime
 	if(!doneflag) // sinyal yoksa aramaya basla
-		total= findRec(argv[1],argv[2]);
+		total = startSearching(argv[1],argv[2]);
 
-	gettimeofday(&endTime,NULL);
-
-	total = *shmData;
-	printf("SEARCH COMPLETED IN %ld ms.\n",getTimeDif(startTime,endTime));
 	printf("Found %d occurances.\n",total);
 
-	unlink(FIFO_NAME);
-	sem_unlink(SEM_NAME);
-	sem_unlink(SEM_SHARED_NAME);
+	
 	return 0;
 }
 
@@ -88,6 +68,53 @@ void sighandler(int signo){
 	printf("#### SIGINT(^C) handled ####\n");
 	doneflag=1;
 }
+
+
+int startSearching(char *dirname,char *word){
+
+	struct timeval startTime;
+	struct timeval endTime;
+	gettimeofday(&startTime,NULL);
+
+	unlink(LOG_FILE_NAME);
+
+	FILE *fpLog = fopen(LOG_FILE_NAME,"a");
+	
+
+	shmid = shmget(shmKey,sizeof(int),IPC_CREAT | 0600);
+	int *shmData= shmat(shmid,NULL,0);
+	if(shmData == (int*)-1){
+		perror("shmat");
+		exit(1);
+	}
+
+	*shmData=0;
+	
+	strWord = word; // aranacak kelime
+
+	fprintf(fpLog,"Search started for  'word: %s'  in 'directory : %s'\n",word,dirname);
+	fflush(fpLog);
+	findRec(dirname,word);
+
+	gettimeofday(&endTime,NULL);
+	long totalTime = getTimeDif(startTime,endTime);
+	printf("SEARCH COMPLETED IN %ld ms.\n",totalTime);
+
+	fprintf(fpLog, "\n###############################\n\n");
+	fprintf(fpLog, "TOTAL OCCURANCES : %d\n",*shmData);
+	fprintf(fpLog, "TOTAL TIME  : %ld(ms)\n\n",totalTime);
+	fprintf(fpLog, "###############################\n");
+
+
+	unlink(FIFO_NAME);
+	sem_unlink(SEM_NAME);
+	sem_unlink(SEM_SHARED_NAME);
+
+
+
+	return *shmData;
+}
+
 
 int findRec(const char *dirPath,const char *word){
 
@@ -150,7 +177,6 @@ int findRec(const char *dirPath,const char *word){
 				msgrcv(msqid,msMessage,MESSAGE_SIZE,0,0);
 
 				sscanf(msMessage->text,"%d",&temp);
-				printf("Message %s\n",msMessage->text);
 				total+=temp;
 			}
 
@@ -313,6 +339,9 @@ int findContentOfDir(const char *dirPath){
 void *threadFindOcc(void *args){
 
 	hmThread_t *pArgs = (hmThread_t *)args;
+	struct timeval startTime;
+	struct timeval endTime; 
+	gettimeofday(&startTime,NULL);
 
 	key_t key = getpid();
 	int msqid;
@@ -334,15 +363,22 @@ void *threadFindOcc(void *args){
 	}
 	// sonuclari loga bas
 	sem_wait(sem_named);
-	printOccurancesToLog(LOG_FILE_NAME,occ);
-	sem_post(sem_named);
 
+	gettimeofday(&endTime,NULL);
+
+	long time = getTimeDif(startTime,endTime);
+
+	printOccurancesToLog(LOG_FILE_NAME,occ,time);
+	sem_post(sem_named);
 	sprintf(message->text,"%d",occ->total);
+
+	
 	msgsnd(msqid,message,MESSAGE_SIZE,0);
 
 	deleteOccurance(occ);
 	free(occ);
 	free(message);
+
 }
 
 // regular dosyami kontrol et
@@ -400,7 +436,6 @@ occurance_t* findOccurenceInRegular(const char* fileName,const char *word){
 	arkaya bulununca imleci geriye cek ve devam et. Tum eslesen kelimeleri bul
 	*/
 
-
 	while(!doneflag && read(fdFileToRead,&buf,sizeof(char))){
 	++column; /* hangi sutunda yer aliriz*/
 	if(buf == '\n'){
@@ -450,17 +485,5 @@ int getnamed(char *name, sem_t **sem, int val) {
 	if (*sem != SEM_FAILED)
 		return 0;
 
-	return -1;
-}
-
-int destroynamed(char *name, sem_t *sem) {
-	int error = 0;
-	if (sem_close(sem) == -1)
-		error = errno;
-	if ((sem_unlink(name) != -1) && !error)
-		return 0;
-	if (error)
-		/* set errno to first error that occurred */
-		errno = error;
 	return -1;
 }

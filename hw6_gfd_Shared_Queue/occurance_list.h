@@ -30,7 +30,7 @@ void printOccurance(occurance_t * occ);
 void deleteOccurance(occurance_t *occ);
 
 // yapiyi dosyaya basar
-void printOccurancesToLog(const char *fname,occurance_t * occ);
+void printOccurancesToLog(const char *fname,occurance_t * occ,long totalTime);
 
 
 #endif

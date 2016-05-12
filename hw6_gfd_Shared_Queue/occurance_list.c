@@ -40,10 +40,11 @@ void printOccurance(occurance_t * occ){
 }
 
 
-void printOccurancesToLog(const char *fname,occurance_t * occ){
+void printOccurancesToLog(const char *fname,occurance_t * occ,long totalTime){
 
 
 	FILE * fpLog = fopen(fname,"a");
+	int i=1;
 
 	if(occ ==NULL)
 		perror("Null parameter");
@@ -51,13 +52,15 @@ void printOccurancesToLog(const char *fname,occurance_t * occ){
 		if(occ->head==NULL)
 			fprintf(fpLog,"empty list\n");
 		else{
-			fprintf(fpLog, "File %s\n",occ->fileName);
+			fprintf(fpLog, "\n#####################################\n");
+			fprintf(fpLog, "\nFile : %s\n",occ->fileName);
+			fprintf(fpLog, "Total Time : %ld(ms)\n\n",totalTime);
 			node_t *ref = occ->head;
 			while(ref!=NULL){
-				fprintf(fpLog,"R: %d - C: %d\n",ref->row,ref->column);
+				fprintf(fpLog,"%d. row: %d - column: %d\n",i++,ref->row,ref->column);
 				ref = ref->next;
 			}
-			fprintf(fpLog,"Total %d\n",occ->total);
+			fprintf(fpLog,"File Total %d\n",occ->total);
 		}
 	}
 	fflush(fpLog);
