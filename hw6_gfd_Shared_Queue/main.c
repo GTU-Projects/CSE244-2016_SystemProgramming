@@ -64,7 +64,7 @@ int main(int argc,char *argv[]){
 
 // signal handler
 void sighandler(int signo){
-	printf("#### SIGINT(^C) handled ####\n");
+	printf("#### proc[%ld] handled SIGINT(^C) ####\n",(long)getpid());
 	doneflag=1;
 }
 
