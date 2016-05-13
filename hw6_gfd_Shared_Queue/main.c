@@ -29,8 +29,8 @@ int inumFiles; // dosya sayisi
 char **strDirs=NULL; // klasor adresleri
 int inumDirs; // klasor sayisi
 
-sem_t *sem_named=NULL; // named semafor -> dosyaya yazma esnasinda kullanilacak
-sem_t *sem_shared=NULL; // 
+sem_t *sem_log=NULL; // named semafor -> dosyaya yazma esnasinda kullanilacak
+sem_t *sem_shared=NULL; // sharede erisim esnasinda kullanilacak
 const char *strWord=NULL; // aranacak kelimenin pointeri
 hmThread_t *ths=NULL; // thread e gonderilecek parametre ve thread bilgileri
 
@@ -49,7 +49,9 @@ int main(int argc,char *argv[]){
 
 	// sinyalleri set et
 	struct sigaction sigact;
+	sigemptyset(&sigact.sa_mask);
 	sigact.sa_handler = sighandler;
+	sigact.sa_flags=0;
 	sigaction(SIGINT,&sigact,NULL);
 
 	if(!doneflag) // sinyal yoksa aramaya basla
@@ -57,7 +59,7 @@ int main(int argc,char *argv[]){
 
 	printf("Found %d occurances.\n",total);
 
-	return 0;
+	return 0; // basarili cik
 }
 
 // signal handler
@@ -66,15 +68,21 @@ void sighandler(int signo){
 	doneflag=1;
 }
 
+// bu metod ana yapiyi kontrol eder ve klasor altinda kelime arar
 int startSearching(char *dirname,char *word){
 
 	struct timeval startTime;
 	struct timeval endTime;
 	gettimeofday(&startTime,NULL);
-	getnamed(SEM_NAME,&sem_named,1);
 
+	// log dosyasina erisim kontrolu icin fifo
+	getnamed(SEM_LOG_NAME,&sem_log,1);
+
+	// varsa eski loglari sil
 	unlink(LOG_FILE_NAME);
 
+	// shared memory acalim
+	// buraya tum procesler bulduklari toplam sayiyi eklicekler
 	shmid = shmget(shmKey,sizeof(int),IPC_CREAT | 0600);
 	int *shmData= shmat(shmid,NULL,0);
 	if(shmData == (int*)-1){
@@ -90,6 +98,8 @@ int startSearching(char *dirname,char *word){
 	fprintf(fpLog,"Search started for  'word: %s'  in 'directory : %s'\n",word,dirname);
 	fflush(fpLog);
 	fclose(fpLog);
+
+	// asil metoda gec ve arama islemini recursive baslat
 	findRec(dirname,word);
 
 	gettimeofday(&endTime,NULL);
@@ -99,41 +109,45 @@ int startSearching(char *dirname,char *word){
 	
 	// neden mi kilitledim? cunku threadler sonucu yazmamis olabilir sinyal gelme durumunda onlari bekleriz
 	// log dosyasini kilitle ve son sonuclari bas
-	sem_wait(sem_named);
+	sem_wait(sem_log);
 	fpLog = fopen(LOG_FILE_NAME,"a");
 	
 	fprintf(fpLog, "\n###############################\n\n");
 	if(doneflag==1){
 		fprintf(fpLog,"SIGINT - ^C Handled. Results until signal : \n");
 	}
+
 	fprintf(fpLog, "TOTAL OCCURANCES : %d\n",*shmData);
 	fprintf(fpLog, "TOTAL TIME  : %ld(ms)\n\n",totalTime);
 	fprintf(fpLog, "###############################\n");
 	fprintf(fpLog, "\n");
 	fclose(fpLog);
-	sem_post(sem_named);
+	sem_post(sem_log);
 
+	int totalOccurance = *shmData;
 	unlink(FIFO_NAME);
-	sem_unlink(SEM_NAME);
+	sem_close(sem_log); // semafor sil
+	sem_unlink(SEM_LOG_NAME);
 	sem_unlink(SEM_SHARED_NAME);
 	shmctl(shmid,IPC_RMID,NULL);
-
-	return *shmData;
+	return totalOccurance; // shared icindeki degeri yolla
 }
 
-
+// recursive olarak arama yapacak
+// detaylar header file icinde
 int findRec(const char *dirPath,const char *word){
 
 	int i;
 	pid_t pidChild=-1;
 	hmMsg_t *msMessage;
 	int msqid;
-	key_t key;
+	key_t key; // message queue key
 	int total=0;
 
 	// pipelarin karsimamami icin pipe ac
 
 	if(!doneflag){
+		// once klasor iceriklerini okuyup kaydedelim
 		findContentOfDir(dirPath);
 	}
 
@@ -144,7 +158,6 @@ int findRec(const char *dirPath,const char *word){
 
 	// once regularlar icin threadleri yolla isleme baslasinlar
 	if(inumFiles>0){
-		pthread_t pipeReadThread;
 			
 		msMessage = (hmMsg_t *)malloc(sizeof(hmMsg_t));
 		msMessage->type=1;
@@ -152,19 +165,19 @@ int findRec(const char *dirPath,const char *word){
 
 		key = getpid();
 
+		// message queue olustur
 		msqid = msgget(key,S_IRUSR | S_IWUSR | IPC_CREAT);
 		if(msqid ==-1){
 			perror("Failed to create message queue ");
 			exit(1);
 		}
 
+		// threadleri ve bilgilerini kaydedecegimiz yeri ac
 		ths = (hmThread_t *)calloc(sizeof(hmThread_t),inumFiles);
 		
 		if(!doneflag){
-
-
 			// her threadde tek tek acmak yerine bir defa acalim sonra threadler ordan ulassin
-			int semStat=getnamed(SEM_NAME,&sem_named,1);
+			int semStat=getnamed(SEM_LOG_NAME,&sem_log,1);
 			#ifdef DEBUG
 				fprintf(stdout,"Semaphore Open status  : %d\n",semStat);
 			#endif
@@ -177,7 +190,7 @@ int findRec(const char *dirPath,const char *word){
 				}else break;
 			}
 			int j=0;
-			int temp=0;
+			int temp=0; // queueden okudugumuz toplam sayilari kaydedicez
 			for(j=0;j<i;++j){
 				pthread_join((ths[j].th),NULL);
 				msgrcv(msqid,msMessage,MESSAGE_SIZE,0,0);
@@ -188,7 +201,7 @@ int findRec(const char *dirPath,const char *word){
 
 			free(msMessage);
 			msgctl(msqid,IPC_RMID,NULL); // message queue sil
-			sem_close(sem_named); // semafor kapa
+			sem_close(sem_log); // semafor kapa
 		}
 	}
 
@@ -206,8 +219,8 @@ int findRec(const char *dirPath,const char *word){
 					exit(0);
 				}
 				if(pidChild==0){
-					strcpy(strPath,strDirs[i]);
-					sem_close(sem_named); // recursiveden once kapat semaforu
+					strcpy(strPath,strDirs[i]); // free etmeden once klasor pathini kaydet
+					sem_close(sem_log); // recursiveden once kapat semaforu
 					freeAll(); // childler isleme girmeden once eski verileri silsinler
 					if(!doneflag)
 						findRec(strPath,word);
@@ -224,19 +237,21 @@ int findRec(const char *dirPath,const char *word){
 		}
 	}
 
-	getnamed(SEM_NAME,&sem_shared,1);
+	//semafor ile shared icindeki toplam sayiyi guncelle
+	getnamed(SEM_LOG_NAME,&sem_shared,1);
+
 	sem_wait(sem_shared);
 	int *shmData = shmat(shmid,NULL,0);
 	*shmData = (*shmData)+total;
-
 	shmdt(shmData);
 	sem_post(sem_shared);
+
 	sem_close(sem_shared);
 	freeAll();
 	return total;
 }
 
-// alinan yerleri geri ver
+// Alinan dinamic birimleri geri iade ederiz
 void freeAll(){
 	int i=0;
 	// free and handle dangling pointers
@@ -258,7 +273,6 @@ void freeAll(){
 		free(strFiles);
 	}
 	strFiles=NULL;
-
 
 	if(ths != NULL){
 		free(ths);
@@ -339,7 +353,8 @@ int findContentOfDir(const char *dirPath){
 
 /*
 ** Bu fonksiyonu thread kullanacak ve kendisne verilen file icinde kelie ariyacak
-** buldugu sonuclari ise yine kendine verilen pipe uzerinde kendi parent threadine yollicak
+** buldugu sonuclari bir linked listte depolayip daha sonra semafor ile log dosyasini
+** kilitleyip hepsini loga basar. Queue yardimiylada toplam sayiyi yollar
 */
 void *threadFindOcc(void *args){
 
@@ -350,8 +365,9 @@ void *threadFindOcc(void *args){
 
 	key_t key = getpid();
 	int msqid;
-	hmMsg_t *message;
+	hmMsg_t *message; // gonderilecek mesaj
 
+	// message queueu ac
 	msqid = msgget(key,S_IRUSR|S_IWUSR);
 	if(msqid == -1){
 		perror("Failed to connect message queue ");
@@ -367,22 +383,22 @@ void *threadFindOcc(void *args){
 		occ = findOccurenceInRegular(pArgs->strFilePath,pArgs->word);
 	}
 	// sonuclari loga bas
-	sem_wait(sem_named);
+	sem_wait(sem_log);
 
 	gettimeofday(&endTime,NULL);
 
 	long time = getTimeDif(startTime,endTime);
 
+	// sonuclari loga bas
 	printOccurancesToLog(LOG_FILE_NAME,occ,time);
-	sem_post(sem_named);
+	sem_post(sem_log);
 	sprintf(message->text,"%d",occ->total);
 
 	msgsnd(msqid,message,MESSAGE_SIZE,0);
 
-	deleteOccurance(occ);
-	free(occ);
-	free(message);
-
+	deleteOccurance(occ); // linked list nodlarini sil
+	free(occ); // dinamic yeri sil
+	free(message); // mesaj icin acilan yeri sil
 }
 
 // regular dosyami kontrol et
@@ -407,6 +423,10 @@ int is_directory(const char *dirName){
 }
 
 
+/*
+** Bu fonksiyon dosya icinde arama yaparak buldugu koordinatlari bir 
+** linked list icinde depolayarak daha sonra topluca log dosyasin basar
+*/
 occurance_t* findOccurenceInRegular(const char* fileName,const char *word){
 
 	char str[30];

@@ -1,7 +1,6 @@
 #ifndef HM
  #define HM 0
 
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
@@ -15,23 +14,26 @@
 
 #define LOG_FILE_NAME "gfd.log"
 #define FIFO_NAME ".fifo.ff"
-#define SEM_NAME "/hm.sem"
-#define SEM_SHARED_NAME "/hm.shmsem"
+#define SEM_LOG_NAME "/hm.sem" // log dosyasini kilitlemek icin
+#define SEM_SHARED_NAME "/hm.shmsem" // shared memory kilitlemek icin
 
-#define MESSAGE_SIZE 20
+#define MESSAGE_SIZE 12 // max integer boyutu kadar 11+1
 
+// dosya,semafor izinleri
 #define PERMS (mode_t)(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 #define FLAGS (O_CREAT | O_EXCL)
 
 //#define DEBUG
 //#define DEBUG_FILE_READ
 
+// Bu struct thread icin kullanilacak
 typedef struct{
 	pthread_t th;
 	const char *strFilePath; // hangi dosyadan okuyacak
 	const char *word; // ne okuyacak
 }hmThread_t;
 
+// bu struct message queue icin kullanilacak
 typedef struct{
 	long type;
 	char text[MESSAGE_SIZE];
@@ -48,22 +50,34 @@ void sighandler(int signo);
 void freeAll();
 
 
+/*
+** Iki zaman arasindaki farki milisaniye(ms) cinsinden bulur
+*/
 long getTimeDif(struct timeval start, struct timeval end);
 
 
-// starter method
+/* Ana arama islemini, yapiyi kontrol edecek bir starter fonksiyon.
+** verilen klasor altinda tum okunabilir dosya ve klasorlerde kelime arar.
+** toplam tekrar sayisini return eder.
+*/
 int startSearching(char *dirname,char *word);
 
 
 /*
-** Bu fonksiyon findOccuranceye yardimci olarak recursive kollarda kullanilacak
-** NOT :: BURADADA BIR TANE THREAD SUREKLI PIPE UCUNU DINLICEK VE GELENLERI 
-** FIFOYA YONLENDIRECEK BOYLECE HEM ALAN HEMDE ZAMAN KAZANIRIZ.
+** Bu fonksiyon verilen klasor altindaki dosyalarda recursive olarak kelime ariyacak
+** her klasor icin fork her dosya cin threadler araciligiyla okuma yapilacak
+** threadler file proceslere bilgiler(toplam kac tane bulduklarini) message queue ile
+** fork ile olusan procesler ise shared memorye toplam sonuclarini eklicekler 
 */
 int findRec(const char *dirPath,const char *word);
 
 
 
+/*
+** Bu methodu dosyalar icin arama yapacak olan threadler kullanacaklar
+** Genel olarak starter yapili bir metoddur. findOccuranceInRegulari 
+** cagirir.
+*/
 void *threadFindOcc(void *arg);
 
 

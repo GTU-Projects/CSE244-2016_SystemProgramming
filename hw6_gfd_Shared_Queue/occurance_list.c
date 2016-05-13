@@ -20,6 +20,8 @@ void addLastOccurance(occurance_t *hm,int row,int col){
 	hm->total +=1;
 }
 
+
+// tum elemanlari sirayla dosyaya basicak fonksiyon
 void printOccurance(occurance_t * occ){
 
 	if(occ ==NULL)
@@ -37,9 +39,10 @@ void printOccurance(occurance_t * occ){
 	}
 }
 
-
+// listi dosyaya basar
+// list icinde her dosyanin adi koordinatlari vardir.
+// islemin toplam zamaninida ekrana basar
 void printOccurancesToLog(const char *fname,occurance_t * occ,long totalTime){
-
 
 	FILE * fpLog = fopen(fname,"a");
 	int i=1;
@@ -61,11 +64,11 @@ void printOccurancesToLog(const char *fname,occurance_t * occ,long totalTime){
 			fprintf(fpLog,"File Total %d\n",occ->total);
 		}
 	}
-	fflush(fpLog);
+	fflush(fpLog); // log flusing
 	fclose(fpLog);
 }
 
-
+// linked listi siler
 void deleteOccurance(occurance_t *occ){
 	if(occ!=NULL){
 		if(occ->head !=NULL){
@@ -80,6 +83,7 @@ void deleteOccurance(occurance_t *occ){
 }
 
 
+// link list test
 int test(){
 
 	occurance_t *hm = malloc(sizeof(occurance_t));
@@ -88,14 +92,12 @@ int test(){
 	hm->head=NULL;
 	hm->last=NULL;
 
-
 	addLastOccurance(hm,3,4);
-	addLastOccurance(hm,3,4);
-	addLastOccurance(hm,3,4);
-	addLastOccurance(hm,3,4);
+	addLastOccurance(hm,4,2);
+	addLastOccurance(hm,5,6);
+	addLastOccurance(hm,1,9);
 	printOccurance(hm);
 	deleteOccurance(hm);
 	
 	free(hm);
-
 }

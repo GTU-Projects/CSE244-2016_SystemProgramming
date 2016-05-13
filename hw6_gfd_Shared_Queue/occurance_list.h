@@ -20,16 +20,16 @@ typedef struct{
 
 
 
-// listenin sonuna ekleme yapar
+// listin sonuna ekleme yapar
 void addLastOccurance(occurance_t *hm,int row,int col);
 
-// listeyi ekrana basar 
+// listi ekrana basar 
 void printOccurance(occurance_t * occ);
 
-// listeyi temizler
+// listi temizler
 void deleteOccurance(occurance_t *occ);
 
-// yapiyi dosyaya basar
+// listi dosyaya basar
 void printOccurancesToLog(const char *fname,occurance_t * occ,long totalTime);
 
 
