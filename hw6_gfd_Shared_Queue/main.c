@@ -10,7 +10,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <semaphore.h>
-#include <sys/syscall.h> // gettid
 #include <time.h>
 #include "occurance_list.h"
 #include "hm.h"
@@ -24,17 +23,16 @@ static sig_atomic_t doneflag=0;
 
 key_t shmKey = 941524;
 int shmid;
-int fdPipe[2]; // pipe -> file proc-dir proc arasinda tek pipe var
+
 char **strFiles=NULL; // dosya pathleri
 int inumFiles; // dosya sayisi
 char **strDirs=NULL; // klasor adresleri
 int inumDirs; // klasor sayisi
+
 sem_t *sem_named=NULL; // named semafor -> dosyaya yazma esnasinda kullanilacak
 sem_t *sem_shared=NULL; // 
 const char *strWord=NULL; // aranacak kelimenin pointeri
 hmThread_t *ths=NULL; // thread e gonderilecek parametre ve thread bilgileri
-int totalOccNum; // toplam tekrar sayisi
-struct sigaction sigact; // sigaction
 
 long getTimeDif(struct timeval start, struct timeval end)
 {
@@ -49,8 +47,8 @@ int main(int argc,char *argv[]){
 		exit(EXIT_FAILURE);
 	}
 
-
 	// sinyalleri set et
+	struct sigaction sigact;
 	sigact.sa_handler = sighandler;
 	sigaction(SIGINT,&sigact,NULL);
 
@@ -59,7 +57,6 @@ int main(int argc,char *argv[]){
 
 	printf("Found %d occurances.\n",total);
 
-	
 	return 0;
 }
 
@@ -69,17 +66,14 @@ void sighandler(int signo){
 	doneflag=1;
 }
 
-
 int startSearching(char *dirname,char *word){
 
 	struct timeval startTime;
 	struct timeval endTime;
 	gettimeofday(&startTime,NULL);
+	getnamed(SEM_NAME,&sem_named,1);
 
 	unlink(LOG_FILE_NAME);
-
-	FILE *fpLog = fopen(LOG_FILE_NAME,"a");
-	
 
 	shmid = shmget(shmKey,sizeof(int),IPC_CREAT | 0600);
 	int *shmData= shmat(shmid,NULL,0);
@@ -92,25 +86,37 @@ int startSearching(char *dirname,char *word){
 	
 	strWord = word; // aranacak kelime
 
+	FILE *fpLog = fopen(LOG_FILE_NAME,"a");
 	fprintf(fpLog,"Search started for  'word: %s'  in 'directory : %s'\n",word,dirname);
 	fflush(fpLog);
+	fclose(fpLog);
 	findRec(dirname,word);
 
 	gettimeofday(&endTime,NULL);
 	long totalTime = getTimeDif(startTime,endTime);
 	printf("SEARCH COMPLETED IN %ld ms.\n",totalTime);
 
+	
+	// neden mi kilitledim? cunku threadler sonucu yazmamis olabilir sinyal gelme durumunda onlari bekleriz
+	// log dosyasini kilitle ve son sonuclari bas
+	sem_wait(sem_named);
+	fpLog = fopen(LOG_FILE_NAME,"a");
+	
 	fprintf(fpLog, "\n###############################\n\n");
+	if(doneflag==1){
+		fprintf(fpLog,"SIGINT - ^C Handled. Results until signal : \n");
+	}
 	fprintf(fpLog, "TOTAL OCCURANCES : %d\n",*shmData);
 	fprintf(fpLog, "TOTAL TIME  : %ld(ms)\n\n",totalTime);
 	fprintf(fpLog, "###############################\n");
-
+	fprintf(fpLog, "\n");
+	fclose(fpLog);
+	sem_post(sem_named);
 
 	unlink(FIFO_NAME);
 	sem_unlink(SEM_NAME);
 	sem_unlink(SEM_SHARED_NAME);
-
-
+	shmctl(shmid,IPC_RMID,NULL);
 
 	return *shmData;
 }
@@ -186,7 +192,6 @@ int findRec(const char *dirPath,const char *word){
 		}
 	}
 
-
 	// klasorler icin fork yapilacak
 	if(!doneflag && inumDirs>0){
 
@@ -219,7 +224,7 @@ int findRec(const char *dirPath,const char *word){
 		}
 	}
 
-	getnamed(SEM_SHARED_NAME,&sem_shared,1);
+	getnamed(SEM_NAME,&sem_shared,1);
 	sem_wait(sem_shared);
 	int *shmData = shmat(shmid,NULL,0);
 	*shmData = (*shmData)+total;
@@ -372,7 +377,6 @@ void *threadFindOcc(void *args){
 	sem_post(sem_named);
 	sprintf(message->text,"%d",occ->total);
 
-	
 	msgsnd(msqid,message,MESSAGE_SIZE,0);
 
 	deleteOccurance(occ);
@@ -403,9 +407,6 @@ int is_directory(const char *dirName){
 }
 
 
-// hw3 teki fonksiyonum
-// dosya icinde kelimeni gectigi koordinatlari fd ye basar
-// bu odev icin fd bir pipe tir
 occurance_t* findOccurenceInRegular(const char* fileName,const char *word){
 
 	char str[30];
@@ -418,9 +419,6 @@ occurance_t* findOccurenceInRegular(const char* fileName,const char *word){
 	int logCreated = 0;
 	occurance_t *occ = malloc(sizeof(occurance_t));
 	occ->head=NULL;
-
-	pid_t tid = syscall(SYS_gettid);
-
 
 	if((fdFileToRead = open(fileName,O_RDONLY)) == -1){
 		fprintf(stderr," Failed open \"%s\" : %s ",fileName,strerror(errno));

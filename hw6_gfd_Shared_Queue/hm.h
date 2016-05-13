@@ -17,10 +17,8 @@
 #define FIFO_NAME ".fifo.ff"
 #define SEM_NAME "/hm.sem"
 #define SEM_SHARED_NAME "/hm.shmsem"
-#define MESSAGE_MAX 100
 
 #define MESSAGE_SIZE 20
-
 
 #define PERMS (mode_t)(S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
 #define FLAGS (O_CREAT | O_EXCL)
@@ -49,13 +47,13 @@ void sighandler(int signo);
 */
 void freeAll();
 
-/*
-** Wrapper olarak kullanilacak.
-** Bu fonksiyon verilen dir altinda recursive olarak kelime ariacak
-** NOT ::: BIR TANE THREAD SUREKLI FIFODAN OKUMA YAPACAK.
-** HER GELEN BILGIYI LOGA AKTARARAK DAHA IYI BIR PERFORMANS SAGLANDI
-*/
-int findOccurance(const char *dirname,const char *word);
+
+long getTimeDif(struct timeval start, struct timeval end);
+
+
+// starter method
+int startSearching(char *dirname,char *word);
+
 
 /*
 ** Bu fonksiyon findOccuranceye yardimci olarak recursive kollarda kullanilacak
@@ -64,41 +62,11 @@ int findOccurance(const char *dirname,const char *word);
 */
 int findRec(const char *dirPath,const char *word);
 
+
+
 void *threadFindOcc(void *arg);
 
-/*
-** Bu fonksiyonu remove pipe threadi kullanacak
-** Surekli olarak pipetan bilgileri cekip fifoya yonlendirecek
-**
-** Pipe tan neler gelicek :
-** 
-**	tid row col // tid si ve ilk koordinatlar
-**      row col // 2.koordinatlar
-**      -1 total  // tid pipe yazmayi kesi yeni yid bekle
-**   -1  . .  // tid -1 geldi yani pipe bilgi akisini kapat
-** 
-** Fifoya nasi ahtaracak : 
-** 
-**	path_size path row col // tid ye ait pathi bul ve yolla
-**      			row col
-**  				-1  total // row -1 olana kadar oku -1 ise farklı pathtan bilgi gelicek demektir
-**   -1   // path uzunlugu -1 ise o zaman bu threadin isi bitmistir olsun
-*/
-void *threadRemovePipe(void *arg);
 
-
-
-/*
-** Bu fonksiyonu remove fifo threadi kullanacak
-** Surekli olarak fifodan bilgileri cekip loga  yonlendirecek
-** 
-** Fifodan okuaycaklarıi : 
-**	path_size path row col // path size al gecerli ise oku
-**      			row col
-**  				-1  total // row -1 olana kadar oku -1 ise farklı pathtan bilgi gelicek demekti
-**   -1   // path uzunlugu -1 ise o zaman bu threadin isi bitmistir olsun
-*/
-void *threadRemoveFifo(void *arg);
 
 /*
 ** Bu fonksiyon bir dir icindeki toplam klasor ve dosya sayisini
@@ -113,14 +81,9 @@ int findContentOfDir(const char *dirPath);
 */
 occurance_t * findOccurenceInRegular(const char* fileName,const char *word);
 
-/* BU FONKSIYONLAR KITAPTAN ALINDI */
-
+/* BU FONKSIYON KITAPTAN ALINDI */
 // named semafor acar
 int getnamed(char *name, sem_t **sem, int val);
-
-// named semaforu kapatır
-int destroynamed(char *name, sem_t *sem);
-
 
 
 #endif

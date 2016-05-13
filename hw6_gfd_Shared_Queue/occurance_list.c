@@ -20,14 +20,12 @@ void addLastOccurance(occurance_t *hm,int row,int col){
 	hm->total +=1;
 }
 
-
 void printOccurance(occurance_t * occ){
 
 	if(occ ==NULL)
 		perror("Null parameter");
 	else{
-		if(occ->head==NULL)
-			printf("empty list\n");
+		if(occ->head==NULL){}
 		else{
 			node_t *ref = occ->head;
 			while(ref!=NULL){
